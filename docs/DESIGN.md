@@ -1,7 +1,6 @@
 # z-frp 设计总览
 
-> 状态：**待确认**。本文是 grill-with-docs 过程的收口产物，汇总所有已拍板的设计决策。
-> 在用户确认"达成共识"之前，不开始写代码。
+> 状态：**一期已实现，二期方案已定**。一期代码见 `packages/`；二期（key 凭证 + 服务端托管配置）决策见 [ADR-0010](adr/0010-key-based-tunnel-provisioning.md)，尚未实现。
 
 ## 一句话
 
@@ -31,7 +30,8 @@
 | 6 | 认证 | 每客户端一 token + wss；TCP 入口先握手再放行 | [0006](adr/0006-auth-and-tcp-entry.md) |
 | 7 | 帧与重连 | JSON 控制帧 + binary 数据帧；断线自动重连 + 全量重注册 | [0007](adr/0007-protocol-and-reconnect.md) |
 | 8 | 工程 | TS + pnpm monorepo；一 frpc 多代理 | [0008](adr/0008-project-shape.md) |
-| 9 | 运维 | 只读 dashboard（子域名 + basic auth）；JSON 配置；手填 remotePort；多 frpc 各自 token；30s/90s 心跳 | [0009](adr/0009-dashboard-and-ops.md) |
+| 9 | 运维（一期） | 只读 dashboard（子域名 + basic auth）；JSON 配置；手填 remotePort；多 frpc 各自 token；30s/90s 心跳 | [0009](adr/0009-dashboard-and-ops.md) |
+| 10 | 隧道开通（二期，未实现） | 服务端托管隧道配置 + 随机 key 凭证；CLI 子命令新建/吊销/轮换；客户端 `run.js -key` 零配置启动；本地地址建时登记可 `-local` 覆盖 | [0010](adr/0010-key-based-tunnel-provisioning.md) |
 
 ## 一期不做
 
@@ -40,6 +40,10 @@
 - 会话级断线恢复（未确认数据续传）
 - Prometheus 指标导出
 - 多租户、计费、RBAC、WAF
+
+## 二期计划（ADR-0010，未实现）
+
+把"客户端配置驱动"改成"服务端托管配置 + key 凭证"：服务端 CLI 新建隧道并生成 key，客户端 `run.js -key <key>` 一句命令启动（不保留 `frpc.json`）。包含 `tunnels.json` 持久化（CLI 原子写 + frps 按需读）、key 吊销/轮换（key 与 tunnel ID 分离）、协议加 `config-pull`/`config-push` 两帧（保持 v1）、dashboard 增加隧道清单（仍只读）。`-local` 覆盖：HTTP 用 URL、TCP 用 `host:port`。五处细节已于 2026-11-16 全部拍板，见 ADR-0010。完整可写管理面仍不在范围内。
 
 术语定义见 [glossary.md](glossary.md)。
 

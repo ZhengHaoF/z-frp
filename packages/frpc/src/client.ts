@@ -1,20 +1,24 @@
 /**
- * frpc 连接管理：认证 → 注册 → 心跳 → 隧道数据。断线指数退避重连，重连后全量重注册。
+ * frpc 连接管理（二期：key 凭证 + 服务端下发配置）。
+ * 流程：connect → hello(key) → hello-ok → config-pull → config-push → register → 心跳/数据。
+ * 断线指数退避重连，重连后重复上述流程。
  */
 import WebSocket from "ws";
 import {
   DEFAULTS,
+  TUNNEL_PATH,
   decodeControl,
   decodeDataFrame,
   encodeControl,
   encodeDataFrame,
-  TUNNEL_PATH,
+  type ClientConfig,
   type ControlFrame,
-  type FrpcConfig,
+  type DataFrame,
   type Logger,
   type ProxySpec,
 } from "@zfrp/shared";
 import { openHttpStream, openTcpStream, type Sender } from "./proxy.js";
+import type { ClientOptions } from "./config.js";
 
 const MAX_BACKOFF_MS = 30_000;
 
@@ -24,10 +28,11 @@ export class FrpcClient {
   private reconnectTimer?: NodeJS.Timeout;
   private lastAckAt = 0;
   private stopped = false;
-  private readonly feeders = new Map<number, (frame: ReturnType<typeof decodeDataFrame> & object) => void>();
+  private config: ClientConfig | null = null;
+  private readonly feeders = new Map<number, (frame: DataFrame) => void>();
 
   constructor(
-    private readonly cfg: FrpcConfig,
+    private readonly opts: ClientOptions,
     private readonly log: Logger,
   ) {}
 
@@ -45,10 +50,11 @@ export class FrpcClient {
       this.ws = null;
     }
     this.feeders.clear();
+    this.config = null;
   }
 
   private serverUrl(): string {
-    const url = new URL(this.cfg.server);
+    const url = new URL(this.opts.server);
     if (!url.pathname || url.pathname === "/") url.pathname = TUNNEL_PATH;
     return url.toString();
   }
@@ -70,11 +76,9 @@ export class FrpcClient {
     }, 10_000);
     failTimer.unref();
 
-    const heartbeatMs = this.cfg.heartbeatIntervalMs ?? DEFAULTS.heartbeatIntervalMs;
-
     ws.on("open", () => {
       clearTimeout(failTimer);
-      this.sendControl({ type: "hello", v: 1, clientId: this.cfg.clientId, token: this.cfg.token });
+      this.sendControl({ type: "hello", v: 1, key: this.opts.key });
     });
 
     ws.on("message", (raw, isBinary) => {
@@ -100,6 +104,7 @@ export class FrpcClient {
       clearTimeout(failTimer);
       if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
       this.feeders.clear();
+      this.config = null;
       if (this.ws === ws) this.ws = null;
       if (this.stopped) return;
       this.log.warn("与 frps 断开，准备重连", {
@@ -116,7 +121,7 @@ export class FrpcClient {
   }
 
   private scheduleReconnect(attempt: number): void {
-    const base = this.cfg.reconnectBaseMs ?? DEFAULTS.reconnectBaseMs;
+    const base = DEFAULTS.reconnectBaseMs;
     const delay = Math.min(base * 2 ** Math.min(attempt, 8), MAX_BACKOFF_MS);
     this.reconnectTimer = setTimeout(() => this.connect(attempt), delay);
   }
@@ -139,9 +144,13 @@ export class FrpcClient {
       case "hello-ok": {
         markAuthenticated();
         this.lastAckAt = Date.now();
-        this.register();
-        this.startHeartbeat(ws, ctrl.heartbeatIntervalMs);
-        this.log.info("认证通过，代理已上线", { clientId: this.cfg.clientId });
+        // hello-ok 后立即拉配置
+        this.sendControl({
+          type: "config-pull",
+          v: 1,
+          key: this.opts.key,
+          ...(this.opts.local ? { local: this.opts.local } : {}),
+        });
         break;
       }
       case "hello-reject": {
@@ -149,11 +158,31 @@ export class FrpcClient {
         ws.close(1008, "rejected");
         break;
       }
+      case "config-push": {
+        this.config = {
+          tunnelId: ctrl.tunnelId,
+          clientId: ctrl.clientId,
+          proxies: ctrl.proxies as ProxySpec[],
+        };
+        this.log.info("已获取隧道配置", {
+          tunnelId: ctrl.tunnelId,
+          clientId: ctrl.clientId,
+          proxies: (ctrl.proxies as ProxySpec[]).map((p) => p.name),
+        });
+        this.register();
+        this.startHeartbeat(ws);
+        break;
+      }
+      case "config-reject": {
+        this.log.error("配置拉取被拒", { reason: ctrl.reason });
+        ws.close(1008, "config rejected");
+        break;
+      }
       case "register-ok": {
         if (ctrl.rejected.length) {
           this.log.warn("部分代理注册被拒", { rejected: ctrl.rejected });
         } else {
-          this.log.info("全部代理注册成功", { count: this.cfg.proxies.length });
+          this.log.info("全部代理注册成功", { count: this.config?.proxies.length ?? 0 });
         }
         break;
       }
@@ -179,7 +208,8 @@ export class FrpcClient {
   }
 
   private register(): void {
-    const proxies = this.cfg.proxies.map((p) => ({
+    if (!this.config) return;
+    const proxies = this.config.proxies.map((p) => ({
       name: p.name,
       type: p.type,
       ...(p.type === "http"
@@ -189,18 +219,18 @@ export class FrpcClient {
     this.sendControl({ type: "register", v: 1, proxies: proxies as ProxySpec[] });
   }
 
-  private startHeartbeat(ws: WebSocket, intervalMs: number): void {
+  private startHeartbeat(ws: WebSocket): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    const timeout = this.cfg.heartbeatIntervalMs ?? DEFAULTS.heartbeatIntervalMs;
+    const interval = DEFAULTS.heartbeatIntervalMs;
     this.heartbeatTimer = setInterval(() => {
       if (ws.readyState !== WebSocket.OPEN) return;
-      if (Date.now() - this.lastAckAt > timeout * 4) {
+      if (Date.now() - this.lastAckAt > interval * 4) {
         this.log.warn("心跳长时间无响应，主动重连");
         ws.terminate();
         return;
       }
       this.sendControl({ type: "heartbeat", v: 1, at: Date.now() });
-    }, intervalMs || timeout);
+    }, interval);
     this.heartbeatTimer.unref();
   }
 
@@ -209,7 +239,7 @@ export class FrpcClient {
     proxyName: string,
     req?: { method: string; path: string; host: string; headers: Record<string, string> },
   ): void {
-    const proxy = this.cfg.proxies.find((p) => p.name === proxyName);
+    const proxy = this.config?.proxies.find((p) => p.name === proxyName);
     if (!proxy) {
       this.sendData(streamId, Buffer.from("未知代理"), 0x02);
       return;

@@ -2,10 +2,7 @@
   "bindAddr": "127.0.0.1",
   "bindPort": 7000,
   "domain": "frp.example.com",
-  "clients": {
-    "laptop": "replace-with-a-long-random-token-at-least-32-chars",
-    "nas": "another-long-random-token-at-least-32-chars"
-  },
+  "tunnelsFile": "config/tunnels.json",
   "http": {
     "bindAddr": "127.0.0.1",
     "port": 8080

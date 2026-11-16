@@ -29,6 +29,32 @@ export interface TcpProxySpec {
 
 export type ProxySpec = HttpProxySpec | TcpProxySpec;
 
+/**
+ * 隧道在运行时的可变部分：客户端每次启动都能用 -local 覆盖本地地址。
+ * tunnelId 稳定，key 可轮换——两者分离，轮换不影响身份与统计。
+ */
+export interface ClientConfig {
+  tunnelId: string;
+  clientId: string;
+  proxies: ProxySpec[];
+}
+
+/** 隧道持久化记录：存于服务端 tunnels.json */
+export interface TunnelRecord {
+  tunnelId: string;
+  key: string;
+  createdAt: number;
+  /** 客户端连接时注册用的身份；默认等于 tunnelId */
+  clientId: string;
+  proxies: ProxySpec[];
+}
+
+/** tunnels.json 文件结构 */
+export interface TunnelsFile {
+  version: 1;
+  tunnels: TunnelRecord[];
+}
+
 export interface FrpcConfig {
   /** ws(s) 服务端地址，如 "wss://frp.example.com/_tunnel" */
   server: string;
@@ -59,8 +85,10 @@ export interface FrpsConfig {
   tls?: FrpsTlsConfig;
   /** 泛域名后缀，如 "frp.example.com" */
   domain: string;
-  /** clientId → token */
-  clients: Record<string, string>;
+  /** clientId → token（一期字段，二期已由 tunnels.json 取代，保留仅为兼容旧配置） */
+  clients?: Record<string, string>;
+  /** 隧道持久化文件路径，默认 config/tunnels.json */
+  tunnelsFile?: string;
   http: {
     /** HTTP 入口监听地址，默认 "127.0.0.1"（由 Caddy 转发） */
     bindAddr?: string;

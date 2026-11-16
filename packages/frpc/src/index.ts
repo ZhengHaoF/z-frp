@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 import { Logger } from "@zfrp/shared";
-import { loadConfig } from "./config.js";
+import { parseArgs } from "./config.js";
 import { FrpcClient } from "./client.js";
 
-const configPath = process.env["ZFRP_FRPC_CONFIG"] ?? "config/frpc.json";
-
 try {
-  const bootLog = new Logger("frpc", "info");
-  const cfg = loadConfig(configPath, bootLog);
-  const log = new Logger("frpc", cfg.logLevel ?? "info");
-  const client = new FrpcClient(cfg, log);
+  const log = new Logger("frpc", "info");
+  const opts = parseArgs(process.argv.slice(2), log);
+  const client = new FrpcClient(opts, log);
   client.start();
 
   const shutdown = (sig: string): void => {
@@ -20,6 +17,7 @@ try {
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 } catch (err) {
-  process.stderr.write(`frpc 启动失败: ${err instanceof Error ? err.stack : String(err)}\n`);
+  process.stderr.write(`frpc 启动失败: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.stderr.write("用法：run.js -key <key> [-server <wss://...>] [-local <addr>]\n");
   process.exitCode = 1;
 }

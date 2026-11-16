@@ -2,9 +2,7 @@
   "bindAddr": "127.0.0.1",
   "bindPort": 17000,
   "domain": "test.local",
-  "clients": {
-    "tester": "test-token-at-least-32-characters-long"
-  },
+  "tunnelsFile": "config/tunnels.test.json",
   "http": {
     "bindAddr": "127.0.0.1",
     "port": 18080

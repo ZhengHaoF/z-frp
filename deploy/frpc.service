@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/z-frp-client
-Environment=ZFRP_FRPC_CONFIG=/opt/z-frp-client/config/frpc.json
-ExecStart=/usr/bin/node /opt/z-frp-client/packages/frpc/dist/index.js
+# 把 <KEY> 换成 tunnel create 输出的 key；跨机器时按需加 -local
+ExecStart=/usr/bin/node /opt/z-frp-client/packages/frpc/dist/index.js -key <KEY> -server wss://frp.example.com/_frp
 Restart=always
 RestartSec=3
 

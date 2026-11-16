@@ -59,6 +59,9 @@ export type ControlType =
   | "hello"
   | "hello-ok"
   | "hello-reject"
+  | "config-pull"
+  | "config-push"
+  | "config-reject"
   | "register"
   | "register-ok"
   | "register-reject"
@@ -78,8 +81,31 @@ export interface ControlEnvelope {
 
 export interface HelloFrame extends ControlEnvelope {
   type: "hello";
+  /** 二期：key 凭证。clientId/token 为一期兼容字段，二期不再使用。 */
+  key: string;
+  clientId?: string;
+  token?: string;
+}
+
+/** 客户端按 key 拉取服务端托管的隧道配置 */
+export interface ConfigPullFrame extends ControlEnvelope {
+  type: "config-pull";
+  key: string;
+  /** 客户端本地覆盖地址（可选）：HTTP 用 URL，TCP 用 host:port */
+  local?: string;
+}
+
+/** 服务端下发的隧道配置：tunnel ID 稳定，proxies 已按 local 覆盖处理 */
+export interface ConfigPushFrame extends ControlEnvelope {
+  type: "config-push";
+  tunnelId: string;
   clientId: string;
-  token: string;
+  proxies: ProxySpec[];
+}
+
+export interface ConfigRejectFrame extends ControlEnvelope {
+  type: "config-reject";
+  reason: string;
 }
 export interface HelloOkFrame extends ControlEnvelope {
   type: "hello-ok";
@@ -144,6 +170,9 @@ export type ControlFrame =
   | HelloFrame
   | HelloOkFrame
   | HelloRejectFrame
+  | ConfigPullFrame
+  | ConfigPushFrame
+  | ConfigRejectFrame
   | RegisterFrame
   | RegisterOkFrame
   | RegisterRejectFrame

@@ -2,7 +2,7 @@
 
 自研的内网穿透工具：本地 `frpc` 主动连到公网 VPS 上的 `frps`，把本地 HTTP 服务和数据库 TCP 端口暴露成 `xxx.frp.example.com` 子域名，供自己与少数可信的人访问。
 
-设计背景与决策见 [`docs/DESIGN.md`](docs/DESIGN.md) 及 [`docs/adr/`](docs/adr/)。
+设计背景与决策见 [`docs/DESIGN.md`](docs/DESIGN.md) 及 [`docs/adr/`](docs/adr/)。二期改为**服务端托管配置 + key 凭证**（[ADR-0010](docs/adr/0010-key-based-tunnel-provisioning.md)）：在服务端建好隧道拿到 key，客户端只需 `run.js -key <key>` 一句命令，无需配置文件。
 
 ## 架构
 
@@ -13,14 +13,14 @@
 
 - 一条 WebSocket 承载控制帧与数据帧，用 `streamId` 多路复用。
 - 控制帧 JSON（可读），数据帧 binary（高效）。
-- 每客户端一个 token + wss；TCP 入口额外要一次 token 握手，不裸奔。
+- 服务端存每条隧道的完整配置，key 是随机凭证；一条 wss + key 认证；TCP 入口额外一次 token 握手。
 
 ## 前置条件
 
 - 一台有**固定公网 IP** 的 Linux VPS，已备案域名（国内节点必须备案，非标端口也躲不掉）。
 - DNS：`*.frp.example.com` 泛解析到 VPS。
 - VPS 上装 Node.js ≥ 20、Caddy、pnpm。
-- 本地机器装 Node.js ≥ 20。
+- 本地机器装 Node.js ≥ 20（无需 pnpm，跑编译好的 dist 即可）。
 
 ## 构建
 
@@ -31,30 +31,64 @@ pnpm build
 
 产物在 `packages/{shared,frps,frpc}/dist/`。
 
-## 配置
+## 服务端配置
 
 ```bash
-cp config/frps.example.json config/frps.json      # VPS 上
-cp config/frpc.example.json config/frpc.json      # 本地
+cp config/frps.example.json config/frps.json      # VPS 上，按需改
 ```
 
 **frps.json 要点**
 
 - `domain`：泛域名后缀，如 `frp.example.com`。
-- `clients`：`clientId → token`。token 用 `openssl rand -hex 32` 生成，一客户端一个。
+- `tunnelsFile`：隧道存储文件，默认 `config/tunnels.json`。**首次启动会自动创建**。
 - `http`：给 Caddy 转发的入口，默认 `127.0.0.1:8080`。
 - `tcp.bindAddr`：TCP 入口监听地址，默认 `0.0.0.0`；安全组只放行用到的 `remotePort`。
-- `dashboard`：只读面板，默认 `127.0.0.1:7500`，自带 basic auth。
+- `dashboard`：只读面板，默认 `127.0.0.1:7500`，自带 basic auth，含隧道清单。
 
-**frpc.json 要点**
+> 二期不再需要 `clients` 字段（旧配置里留着也不影响）。
 
-- `server`：`wss://frp.example.com/_frp`（`/_frp` 是隧道路径，Caddy 需反代）。
-- `clientId` / `token`：与 frps `clients` 对应。
-- `proxies`：一个 frpc 可声明多个代理，共用一条 WS。
-  - HTTP：`{ name, type:"http", subdomain, local }`
-  - TCP：`{ name, type:"tcp", remotePort, localHost, localPort, authToken }`
+## 新建隧道（在服务端，CLI）
 
-改配置需重启对应进程（一期不做热更新）。
+```bash
+NODE=node
+# HTTP 隧道：把 demo.frp.example.com 映射到本地服务的 5173
+$NODE packages/frps/dist/index.js tunnel create \
+  --subdomain demo --local http://127.0.0.1:5173
+# → 输出一串 64 位 key（只显示一次，保存好）
+
+# TCP 隧道：VPS 的 33061 映射到本地 3306，访客需 AUTH token
+$NODE packages/frps/dist/index.js tunnel create \
+  --remote-port 33061 --local 127.0.0.1:3306 --auth-token <至少8位>
+
+# 管理
+$NODE packages/frps/dist/index.js tunnel list                 # 列出隧道（key 只显示前缀）
+$NODE packages/frps/dist/index.js tunnel rotate <id 或 key>   # 轮换 key，旧 key 立即失效
+$NODE packages/frps/dist/index.js tunnel delete <id 或 key>   # 删除，旧 key 立即失效
+```
+
+所有子命令可选 `--tunnels-file <路径>` 指定存储文件（默认 `config/tunnels.json`）。
+
+**key 与 tunnel ID**：`tunnelId` 是稳定身份（统计、dashboard 条目都靠它），`key` 是可轮换凭证。轮换 key 不影响身份与统计。轮换/删除后，已在线的客户端会在巡检周期内（秒级）被自动断开。
+
+## 客户端启动（本地）
+
+```bash
+# 最简：用服务端登记的本地地址
+node packages/frpc/dist/index.js -key <你的key> -server wss://frp.example.com/_frp
+
+# 换机器/换端口：用 -local 覆盖服务端登记的本地地址
+node packages/frpc/dist/index.js -key <你的key> \
+  -server wss://frp.example.com/_frp \
+  -local http://127.0.0.1:3000          # HTTP 用 URL
+
+node packages/frpc/dist/index.js -key <你的key> \
+  -server wss://frp.example.com/_frp \
+  -local 127.0.0.1:3307                 # TCP 用 host:port
+```
+
+`-server` 不填时默认 `ws://127.0.0.1:7000/_frp`（本地调试用）。`-local` 不填则用建隧道时登记的地址；**跨机器使用必须带 `-local`**，否则连的是建隧道那台机器的本地地址。
+
+二期没有 `frpc.json`——配置全在服务端，客户端只有命令行参数。
 
 ## 部署
 
@@ -66,11 +100,12 @@ cp config/frpc.example.json config/frpc.json      # 本地
 mkdir -p /opt/z-frp && cp -r packages config /opt/z-frp/
 cp deploy/frps.service /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now frps
+# 然后用 tunnel create 建隧道，把输出的 key 发给客户端使用者
 ```
 
-**frpc（本地）**：`deploy/frpc.service` 是 Linux 版；Windows 上用 `nssm` 或任务计划程序包 `node packages/frpc/dist/index.js` 即可。
+**frpc（本地）**：`deploy/frpc.service` 是 Linux 版，把 key 填进 `ExecStart`。Windows 上用 `nssm` 或任务计划程序包 `node packages/frpc/dist/index.js -key <key> ...` 即可。
 
-## 使用
+## 访问
 
 HTTP 服务：浏览器打开 `https://demo.frp.example.com`。
 
@@ -85,18 +120,16 @@ import net from "node:net";
 net.createServer((c) => {
   const u = net.connect(33061, "frp.example.com");
   c.pipe(u); u.pipe(c);
-  u.write("AUTH <tcp代理的authToken>\n");
+  u.write("AUTH <tcp隧道的authToken>\n");
 }).listen(3307, "127.0.0.1");
 ```
 
-Dashboard：`https://dash.frp.example.com`，输入 `dashboard.user/password`，可看在线客户端、代理、活跃流、流量。只读。
+Dashboard：`https://dash.frp.example.com`，输入 `dashboard.user/password`，可看在线客户端、代理、活跃流、流量与隧道清单。只读；建/删/轮换隧道用 CLI。
 
-## 一期不做
+## 一期不做 / 边界
 
-UDP 代理、可写管理面、断线会话恢复（重连后全量重注册，活跃连接会断）、Prometheus 指标、多租户/计费/审计。
-
-## 已知取舍
-
+- UDP 代理、可写 dashboard 管理面、断线会话恢复（重连后全量重注册，活跃连接会断）、Prometheus 指标、多租户/计费/审计。
 - 单 WS 通道同生共死：断线时上面所有流一起断，用户要重连。
 - Node 单线程：靠背压、超时与多进程兜底（后续优化项）。
-- 同 `clientId` 只允许一条连接，新连接顶替旧连接。
+- 同一隧道只允许一条连接，新连接顶替旧连接。
+- `tunnels.json` 是单文件，CLI 原子写 + frps 按需读；极高频并发写不在设计范围（可信人群规模够用）。

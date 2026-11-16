@@ -1,28 +1,38 @@
-import { readFileSync } from "node:fs";
-import { DEFAULTS, type FrpcConfig, type Logger } from "@zfrp/shared";
+import type { Logger } from "@zfrp/shared";
 
-export function loadConfig(path: string, log: Logger): FrpcConfig {
-  const raw = JSON.parse(readFileSync(path, "utf8")) as FrpcConfig;
-  if (!raw.server) throw new Error("配置缺少 server");
-  if (!raw.clientId) throw new Error("配置缺少 clientId");
-  if (!raw.token) throw new Error("配置缺少 token");
-  if (!Array.isArray(raw.proxies)) throw new Error("配置缺少 proxies 数组");
-  for (const p of raw.proxies) {
-    if (p.type === "http" && !p.local) throw new Error(`HTTP 代理 ${p.name} 缺少 local`);
-    if (p.type === "tcp" && (!p.localHost || !p.localPort)) {
-      throw new Error(`TCP 代理 ${p.name} 缺少 localHost/localPort`);
-    }
-  }
-  const cfg: FrpcConfig = {
-    ...raw,
-    heartbeatIntervalMs: raw.heartbeatIntervalMs ?? DEFAULTS.heartbeatIntervalMs,
-    reconnectBaseMs: raw.reconnectBaseMs ?? DEFAULTS.reconnectBaseMs,
+export interface ClientOptions {
+  key: string;
+  server: string;
+  /** 本地覆盖地址：HTTP 用 URL，TCP 用 host:port；不填则用服务端登记值 */
+  local?: string;
+}
+
+const DEFAULT_SERVER = "ws://127.0.0.1:7000/_frp";
+
+/** 解析命令行：run.js -key <key> [-server <wss://...>] [-local <addr>] */
+export function parseArgs(argv: string[], log: Logger): ClientOptions {
+  const get = (flag: string): string | undefined => {
+    const i = argv.indexOf(flag);
+    if (i < 0) return undefined;
+    const v = argv[i + 1];
+    if (!v || v.startsWith("-")) throw new Error(`${flag} 缺少参数值`);
+    return v;
   };
-  log.info("配置已加载", {
-    path,
-    server: cfg.server,
-    clientId: cfg.clientId,
-    proxies: cfg.proxies.map((p) => p.name),
+
+  const key = get("-key") ?? get("--key");
+  if (!key) throw new Error("缺少 -key <key> 参数。用法：run.js -key <key> [-server <url>] [-local <addr>]");
+
+  const opts: ClientOptions = {
+    key,
+    server: get("-server") ?? get("--server") ?? DEFAULT_SERVER,
+  };
+  const local = get("-local") ?? get("--local");
+  if (local) opts.local = local;
+
+  log.info("启动参数已解析", {
+    server: opts.server,
+    key: `${key.slice(0, 8)}…`,
+    localOverride: opts.local ?? "用服务端登记值",
   });
-  return cfg;
+  return opts;
 }

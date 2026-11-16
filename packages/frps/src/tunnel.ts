@@ -19,10 +19,11 @@ import {
   type ProxySpec,
 } from "@zfrp/shared";
 import { Registry, type HttpStreamCtx, type StreamCtx } from "./registry.js";
+import { applyLocalOverride, findByKey, loadTunnels } from "./tunnels.js";
 
 export interface TunnelOptions {
   domain: string;
-  clients: Record<string, string>;
+  tunnelsFile: string;
   heartbeatIntervalMs: number;
   heartbeatTimeoutMs: number;
   log: Logger;
@@ -40,6 +41,8 @@ export class TunnelHub {
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   private readonly nextId = createStreamIdGenerator();
   private readonly sinks = new Map<string, StreamSink>();
+  /** clientId → 当前连接的 key，用于轮换后踢掉旧连接 */
+  private readonly clientKeys = new Map<string, string>();
   private sweepTimer?: NodeJS.Timeout;
 
   constructor(
@@ -107,20 +110,35 @@ export class TunnelHub {
 
       if (ctrl.type === "hello") {
         if (clientId) return;
-        const expected = this.opts.clients[ctrl.clientId];
-        if (!expected || expected !== ctrl.token) {
-          this.opts.log.warn("frpc 认证失败", { clientId: ctrl.clientId, remote });
-          this.send(ws, { type: "hello-reject", v: 1, reason: "clientId 或 token 不正确" });
+        const key = ctrl.key;
+        if (!key || typeof key !== "string") {
+          this.send(ws, { type: "hello-reject", v: 1, reason: "缺少 key" });
           ws.close(1008, "auth failed");
           return;
         }
-        clientId = ctrl.clientId;
-        const rec = this.registry.getOrCreate(clientId);
+        let tunnel;
+        try {
+          tunnel = findByKey(loadTunnels(this.opts.tunnelsFile), key);
+        } catch (err) {
+          this.opts.log.error("读取 tunnels.json 失败", { error: (err as Error).message });
+          this.send(ws, { type: "hello-reject", v: 1, reason: "服务端隧道配置读取失败" });
+          ws.close(1011, "server config error");
+          return;
+        }
+        if (!tunnel) {
+          this.opts.log.warn("frpc 认证失败：key 无效或已轮换/删除", { key: key.slice(0, 8), remote });
+          this.send(ws, { type: "hello-reject", v: 1, reason: "key 无效或已失效" });
+          ws.close(1008, "auth failed");
+          return;
+        }
+        clientId = tunnel.clientId;
+        this.clientKeys.set(clientId, key);
         // 同一 clientId 只允许一条活跃连接：新连接顶替旧连接
+        const rec = this.registry.getOrCreate(clientId);
         if (rec.ws && rec.ws !== ws && rec.ws.readyState === WebSocket.OPEN) {
-          this.opts.log.warn("同 clientId 新连接顶替旧连接", { clientId });
-          for (const [key, sink] of this.sinks) {
-            if (key.startsWith(`${clientId}:`)) sink.onClose("被新连接顶替");
+          this.opts.log.warn("同隧道新连接顶替旧连接", { clientId });
+          for (const [k, sink] of this.sinks) {
+            if (k.startsWith(`${clientId}:`)) sink.onClose("被新连接顶替");
           }
           this.registry.disconnect(clientId);
           rec.ws.terminate();
@@ -133,7 +151,7 @@ export class TunnelHub {
           clientId,
           heartbeatIntervalMs: this.opts.heartbeatIntervalMs,
         });
-        this.opts.log.info("frpc 认证通过", { clientId });
+        this.opts.log.info("frpc 认证通过", { clientId, tunnelId: tunnel.tunnelId });
         return;
       }
 
@@ -143,6 +161,38 @@ export class TunnelHub {
       }
 
       switch (ctrl.type) {
+        case "config-pull": {
+          // 每次都重读，保证轮换/删除立即生效
+          let tunnel;
+          try {
+            tunnel = findByKey(loadTunnels(this.opts.tunnelsFile), ctrl.key);
+          } catch (err) {
+            this.send(ws, { type: "config-reject", v: 1, reason: "服务端配置读取失败" });
+            this.opts.log.error("读取 tunnels.json 失败", { error: (err as Error).message });
+            break;
+          }
+          if (!tunnel || tunnel.clientId !== clientId) {
+            this.opts.log.warn("config-pull 拒绝：key 失效或不匹配", { clientId });
+            this.send(ws, { type: "config-reject", v: 1, reason: "key 无效或已失效，请重新获取" });
+            ws.close(1008, "config rejected");
+            break;
+          }
+          const proxies = applyLocalOverride(tunnel.proxies, ctrl.local);
+          this.send(ws, {
+            type: "config-push",
+            v: 1,
+            tunnelId: tunnel.tunnelId,
+            clientId,
+            proxies: proxies as ProxySpec[],
+          });
+          this.opts.log.info("隧道配置已下发", {
+            tunnelId: tunnel.tunnelId,
+            clientId,
+            proxies: proxies.length,
+            overridden: Boolean(ctrl.local),
+          });
+          break;
+        }
         case "register": {
           const specs = Array.isArray(ctrl.proxies) ? (ctrl.proxies as ProxySpec[]) : [];
           const rejected = this.registry.register(clientId, this.opts.domain, specs);
@@ -196,6 +246,7 @@ export class TunnelHub {
     ws.on("close", (code, reason) => {
       alive = false;
       if (!clientId) return;
+      this.clientKeys.delete(clientId);
       // 只有当前活跃连接断开才清路由；被顶替的旧连接断开不影响新连接
       const rec = this.registry.getOrCreate(clientId);
       if (rec.ws !== ws) {
@@ -303,8 +354,21 @@ export class TunnelHub {
 
   private sweep(): void {
     const now = Date.now();
+    // key 轮换/删除巡检：重读隧道配置，旧 key 对应的连接立即断开
+    let currentKeys: Set<string> | null = null;
+    try {
+      currentKeys = new Set(loadTunnels(this.opts.tunnelsFile).tunnels.map((t) => t.key));
+    } catch (err) {
+      this.opts.log.error("巡检读取 tunnels.json 失败", { error: (err as Error).message });
+    }
     for (const rec of this.registry.clients.values()) {
       if (!rec.ws || rec.ws.readyState !== WebSocket.OPEN) continue;
+      const connectedKey = this.clientKeys.get(rec.clientId);
+      if (currentKeys && connectedKey && !currentKeys.has(connectedKey)) {
+        this.opts.log.warn("key 已轮换/删除，断开连接", { clientId: rec.clientId });
+        rec.ws.close(1008, "key rotated");
+        continue;
+      }
       if (now - rec.lastSeen > this.opts.heartbeatTimeoutMs) {
         this.opts.log.warn("心跳超时，断开客户端", {
           clientId: rec.clientId,

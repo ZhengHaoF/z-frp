@@ -3,5 +3,7 @@ dist/
 *.log
 config/frps.json
 config/frpc.json
+config/tunnels.json
+config/tunnels.test.json
 .workbuddy/
 .DS_Store
