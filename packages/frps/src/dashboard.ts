@@ -36,7 +36,7 @@ function tunnelList(tunnelsFile: string, onlineClientIds: Set<string>): TunnelRo
       id: t.tunnelId,
       note: t.note ?? "",
       proxy: t.proxies
-        .map((p) => (p.type === "http" ? `${p.subdomain} → ${p.local}` : `:${p.remotePort} → ${p.localHost}:${p.localPort}`))
+        .map((p) => (p.type === "http" ? `${p.host} → ${p.local}` : `:${p.remotePort} → ${p.localHost}:${p.localPort}`))
         .join(", "),
       online: onlineClientIds.has(t.clientId),
       keyPrefix: `${t.key.slice(0, 8)}…`,
@@ -114,7 +114,7 @@ function toCreateInput(body: Record<string, unknown>): CreateTunnelInput {
   return {
     type: str("type") === "http" ? "http" : "tcp",
     note: str("note"),
-    subdomain: str("subdomain"),
+    host: str("host"),
     local: str("local"),
     remotePort: num("remotePort"),
     localHost: str("localHost"),
@@ -173,7 +173,7 @@ code{font-family:ui-monospace,monospace;word-break:break-all}
           <label>备注名<input name="note" placeholder="例如：开发机 MySQL" maxlength="120"></label>
           <label>隧道类型<select name="type" id="type">
             <option value="tcp">TCP 端口映射</option>
-            <option value="http">HTTP 子域名</option>
+            <option value="http">HTTP 固定域名</option>
           </select></label>
         </div>
         <p class="hint">UDP / HTTPS（独立类型）/ WOL：当前版本不支持。HTTPS 由前置 Caddy 统一处理，HTTP 隧道天然支持。</p>
@@ -195,10 +195,10 @@ code{font-family:ui-monospace,monospace;word-break:break-all}
 
         <div id="http-fields" style="display:none">
           <div class="row">
-            <label>子域名<input name="subdomain" placeholder="如 demo → demo.frp.example.com"></label>
+            <label>域名<input name="host" placeholder="如 a.b.com"></label>
             <label>本地 URL<input name="local" placeholder="http://127.0.0.1:5173"></label>
           </div>
-          <p class="hint">需泛域名 *.frp.example.com 已解析到 VPS。</p>
+          <p class="hint">一条隧道对应一个完整域名。需把该域名的 A/CNAME 记录解析到 VPS，并在 Caddy 配置中加入该站点名。</p>
         </div>
       </div>
       <div class="modal-foot">
@@ -277,7 +277,7 @@ code{font-family:ui-monospace,monospace;word-break:break-all}
 
     var clientRows = (data.clients||[]).map(function(c){
       var proxies = (c.proxies||[]).map(function(p){
-        return p.type === 'http' ? esc(p.subdomain)+'.' : ':'+esc(p.remotePort);
+        return p.type === 'http' ? esc(p.host) : ':'+esc(p.remotePort);
       }).join('<br>') || '—';
       return '<tr><td>'+esc(c.clientId)+'</td><td>'+(c.online?'<span class="on">在线</span>':'<span class="off">离线</span>')+
         '</td><td>'+proxies+'</td><td>'+c.activeStreams+'</td><td>'+new Date(c.lastSeen).toLocaleString('zh-CN')+'</td></tr>';
@@ -330,7 +330,7 @@ code{font-family:ui-monospace,monospace;word-break:break-all}
     var type = fd.get('type');
     var body = {type:type, note:fd.get('note')||''};
     if(type === 'http'){
-      body.subdomain = fd.get('subdomain')||'';
+      body.host = fd.get('host')||'';
       body.local = fd.get('local')||'';
     } else {
       body.localHost = fd.get('localHost')||'127.0.0.1';

@@ -5,7 +5,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import type { WebSocket } from "ws";
-import type { ProxySpec } from "@zfrp/shared";
+import { isValidHost, type ProxySpec } from "@zfrp/shared";
 
 export interface HttpStreamCtx {
   kind: "http";
@@ -55,8 +55,6 @@ export class Registry {
   private readonly httpRoutes = new Map<string, HttpRoute>();
   private readonly tcpRoutes = new Map<number, TcpRoute>();
 
-  constructor(private readonly domain = "") {}
-
   getOrCreate(clientId: string): ClientRecord {
     let rec = this.clients.get(clientId);
     if (!rec) {
@@ -77,12 +75,12 @@ export class Registry {
    * 幂等重注册。返回被拒绝的代理（冲突或非法）。
    * 注意：调用方应只在认证通过后调用。
    */
-  register(clientId: string, domain: string, proxies: ProxySpec[]): Array<{ name: string; reason: string }> {
+  register(clientId: string, proxies: ProxySpec[]): Array<{ name: string; reason: string }> {
     this.unregisterRoutes(clientId);
     const rec = this.getOrCreate(clientId);
     const rejected: Array<{ name: string; reason: string }> = [];
     const accepted: ProxySpec[] = [];
-    const usedSubdomains = new Set<string>();
+    const usedHosts = new Set<string>();
     const usedPorts = new Set<number>();
 
     for (const p of proxies) {
@@ -91,22 +89,21 @@ export class Registry {
         continue;
       }
       if (p.type === "http") {
-        const sub = p.subdomain;
-        if (!sub || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(sub)) {
-          rejected.push({ name: p.name, reason: "子域名非法（只允许小写字母、数字、连字符）" });
+        if (!isValidHost(p.host)) {
+          rejected.push({ name: p.name, reason: `域名非法：${p.host}` });
           continue;
         }
-        const host = `${sub}.${domain.toLowerCase()}`;
+        const host = p.host.toLowerCase();
         const existing = this.httpRoutes.get(host);
         if (existing && existing.clientId !== clientId) {
-          rejected.push({ name: p.name, reason: `子域名 ${host} 已被占用` });
+          rejected.push({ name: p.name, reason: `域名 ${host} 已被占用` });
           continue;
         }
-        if (usedSubdomains.has(sub)) {
-          rejected.push({ name: p.name, reason: `子域名 ${sub} 在本配置中重复` });
+        if (usedHosts.has(host)) {
+          rejected.push({ name: p.name, reason: `域名 ${host} 在本配置中重复` });
           continue;
         }
-        usedSubdomains.add(sub);
+        usedHosts.add(host);
         this.httpRoutes.set(host, { clientId, proxyName: p.name });
         accepted.push(p);
       } else {
@@ -171,13 +168,10 @@ export class Registry {
     }
   }
 
-  resolveHttp(hostHeader: string): { route: HttpRoute; subdomain: string } | null {
+  resolveHttp(hostHeader: string): { route: HttpRoute } | null {
     const host = (hostHeader || "").split(":")[0]!.toLowerCase();
     const route = this.httpRoutes.get(host);
-    if (!route) return null;
-    const suffix = ".";
-    const idx = host.indexOf(suffix);
-    return { route, subdomain: idx > 0 ? host.slice(0, idx) : host };
+    return route ? { route } : null;
   }
 
   resolveTcp(port: number): TcpRoute | undefined {
@@ -207,7 +201,7 @@ export class Registry {
         name: p.name,
         type: p.type,
         ...(p.type === "http"
-          ? { host: `${p.subdomain}.${this.domain}`, subdomain: p.subdomain }
+          ? { host: p.host }
           : { remotePort: p.remotePort }),
       })),
       activeStreams: c.streams.size,

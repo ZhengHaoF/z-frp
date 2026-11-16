@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/z-frp-client
 # 把 <KEY> 换成 tunnel create 输出的 key；跨机器时按需加 -local
-ExecStart=/usr/bin/node /opt/z-frp-client/packages/frpc/dist/index.js -key <KEY> -server wss://frp.example.com/_frp
+ExecStart=/usr/bin/node /opt/z-frp-client/packages/frpc/dist/index.js -key <KEY> -server wss://a.b.com/_frp
 Restart=always
 RestartSec=3
 

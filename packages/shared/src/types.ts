@@ -5,8 +5,8 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 export interface HttpProxySpec {
   name: string;
   type: "http";
-  /** 子域名，如 "demo" → demo.frp.example.com */
-  subdomain: string;
+  /** 完整域名，如 "a.b.com"；DNS 由用户自己指向 VPS */
+  host: string;
   /** 本地服务地址，如 "http://127.0.0.1:5173" */
   local: string;
 }
@@ -55,8 +55,8 @@ export interface TunnelRecord {
 export interface CreateTunnelInput {
   note?: string;
   type: "tcp" | "http";
-  /** HTTP：子域名 */
-  subdomain?: string;
+  /** HTTP：完整域名，如 a.b.com */
+  host?: string;
   /** HTTP：本地 URL */
   local?: string;
   /** TCP：远程端口 */
@@ -80,7 +80,7 @@ export interface TunnelsFile {
 }
 
 export interface FrpcConfig {
-  /** ws(s) 服务端地址，如 "wss://frp.example.com/_tunnel" */
+  /** ws(s) 服务端地址，如 "wss://a.b.com/_frp" */
   server: string;
   /** 客户端标识，需与 frps clients 中的 key 一致 */
   clientId: string;
@@ -107,8 +107,6 @@ export interface FrpsConfig {
    * 直接暴露 wss 时填写证书；放在 Caddy 后面时用 ws + 回环监听，留空。
    */
   tls?: FrpsTlsConfig;
-  /** 泛域名后缀，如 "frp.example.com" */
-  domain: string;
   /** clientId → token（一期字段，二期已由 tunnels.json 取代，保留仅为兼容旧配置） */
   clients?: Record<string, string>;
   /** 隧道持久化文件路径，默认 config/tunnels.json */

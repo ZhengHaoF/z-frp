@@ -47,7 +47,7 @@
 ### 4. HTTP 表单：切换类型时动态换字段
 
 - 选 TCP：远程端口 + 本地 IP + 本地端口 + 访问密码（authToken，带生成按钮）。
-- 选 HTTP：子域名 + 本地 URL；不显示 authToken（HTTP 隧道没有 AUTH 握手入口）。
+- 选 HTTP：完整域名（如 `a.b.com`）+ 本地 URL；不显示 authToken（HTTP 隧道没有 AUTH 握手入口）。域名模型见 ADR-0012。
 - 用少量前端 JS 根据 select 值切换字段组的显示，不引入前端框架。
 
 ### 5. key 显示：创建成功时显示一次，带复制按钮

@@ -213,7 +213,7 @@ export class FrpcClient {
       name: p.name,
       type: p.type,
       ...(p.type === "http"
-        ? { subdomain: p.subdomain }
+        ? { host: p.host }
         : { remotePort: p.remotePort, authToken: p.authToken }),
     }));
     this.sendControl({ type: "register", v: 1, proxies: proxies as ProxySpec[] });

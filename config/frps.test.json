@@ -1,7 +1,6 @@
 {
   "bindAddr": "127.0.0.1",
   "bindPort": 17000,
-  "domain": "test.local",
   "tunnelsFile": "config/tunnels.test.json",
   "http": {
     "bindAddr": "127.0.0.1",

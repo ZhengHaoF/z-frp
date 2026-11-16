@@ -1,3 +1,4 @@
 export * from "./types.js";
 export * from "./protocol.js";
 export * from "./logger.js";
+export * from "./host.js";

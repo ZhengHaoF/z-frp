@@ -3,7 +3,6 @@ import { DEFAULTS, type FrpsConfig, type Logger } from "@zfrp/shared";
 
 export function loadConfig(path: string, log: Logger): FrpsConfig {
   const raw = JSON.parse(readFileSync(path, "utf8")) as FrpsConfig;
-  if (!raw.domain) throw new Error("配置缺少 domain");
   if (!raw.dashboard?.user || !raw.dashboard?.password) throw new Error("配置缺少 dashboard.user/password");
   const cfg: FrpsConfig = {
     ...raw,
@@ -28,7 +27,6 @@ export function loadConfig(path: string, log: Logger): FrpsConfig {
   };
   log.info("配置已加载", {
     path,
-    domain: cfg.domain,
     tunnelsFile: cfg.tunnelsFile ?? "config/tunnels.json",
     bind: `${cfg.bindAddr}:${cfg.bindPort}`,
   });

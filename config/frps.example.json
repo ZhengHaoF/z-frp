@@ -1,7 +1,6 @@
 {
   "bindAddr": "127.0.0.1",
   "bindPort": 7000,
-  "domain": "frp.example.com",
   "tunnelsFile": "config/tunnels.json",
   "http": {
     "bindAddr": "127.0.0.1",

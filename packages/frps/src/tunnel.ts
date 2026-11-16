@@ -22,7 +22,6 @@ import { Registry, type HttpStreamCtx, type StreamCtx } from "./registry.js";
 import { applyLocalOverride, findByKey, loadTunnels } from "./tunnels.js";
 
 export interface TunnelOptions {
-  domain: string;
   tunnelsFile: string;
   heartbeatIntervalMs: number;
   heartbeatTimeoutMs: number;
@@ -195,7 +194,7 @@ export class TunnelHub {
         }
         case "register": {
           const specs = Array.isArray(ctrl.proxies) ? (ctrl.proxies as ProxySpec[]) : [];
-          const rejected = this.registry.register(clientId, this.opts.domain, specs);
+          const rejected = this.registry.register(clientId, specs);
           this.send(ws, { type: "register-ok", v: 1, rejected });
           this.opts.log.info("代理注册完成", {
             clientId,

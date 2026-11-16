@@ -9,6 +9,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { isValidHost } from "@zfrp/shared";
 import type {
   CreateTunnelInput,
   CreateTunnelResult,
@@ -90,8 +91,8 @@ function isHttpUrl(s: string): boolean {
 function proxyConflict(file: TunnelsFile, proxy: ProxySpec): string | null {
   for (const t of file.tunnels) {
     for (const p of t.proxies) {
-      if (p.type === "http" && proxy.type === "http" && p.subdomain === proxy.subdomain) {
-        return `子域名 ${proxy.subdomain} 已被隧道 ${t.tunnelId} 占用`;
+      if (p.type === "http" && proxy.type === "http" && p.host === proxy.host) {
+        return `域名 ${proxy.host} 已被隧道 ${t.tunnelId} 占用`;
       }
       if (p.type === "tcp" && proxy.type === "tcp" && p.remotePort === proxy.remotePort) {
         return `端口 ${proxy.remotePort} 已被隧道 ${t.tunnelId} 占用`;
@@ -110,14 +111,14 @@ export function buildTunnelRecord(
   let proxy: ProxySpec;
 
   if (input.type === "http") {
-    const sub = input.subdomain?.trim() ?? "";
-    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(sub)) {
-      return { ok: false, error: "子域名只允许小写字母、数字、连字符，且以字母或数字开头" };
+    const host = input.host?.trim().toLowerCase() ?? "";
+    if (!isValidHost(host)) {
+      return { ok: false, error: "请填写完整域名，如 a.b.com（字母、数字、连字符、点）" };
     }
     if (!input.local || !isHttpUrl(input.local)) {
       return { ok: false, error: "HTTP 隧道需要本地 URL，如 http://127.0.0.1:5173" };
     }
-    proxy = { name: note || sub, type: "http", subdomain: sub, local: input.local };
+    proxy = { name: note || host, type: "http", host, local: input.local };
   } else if (input.type === "tcp") {
     const port = input.remotePort;
     if (!Number.isInteger(port) || port! < 1 || port! > 65535) {
@@ -191,7 +192,7 @@ export function deleteTunnel(path: string, idOrKey: string): MutateResult {
 }
 
 export function describeProxy(p: ProxySpec): string {
-  return p.type === "http" ? `${p.subdomain} → ${p.local}` : `:${p.remotePort} → ${p.localHost}:${p.localPort}`;
+  return p.type === "http" ? `${p.host} → ${p.local}` : `:${p.remotePort} → ${p.localHost}:${p.localPort}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,16 +230,16 @@ function flagPath(f: Flags): string {
 
 function cmdCreate(rest: string[]): number {
   const f = parseFlags(rest);
-  const sub = typeof f.subdomain === "string" ? f.subdomain : undefined;
+  const host = typeof f.host === "string" ? f.host : undefined;
   const portRaw = typeof f["remote-port"] === "string" ? f["remote-port"] : undefined;
   const local = typeof f.local === "string" ? f.local : undefined;
   const authToken = typeof f["auth-token"] === "string" ? f["auth-token"] : undefined;
   const note = typeof f.note === "string" ? f.note : undefined;
 
   let input: CreateTunnelInput;
-  if (sub && !portRaw) {
-    input = { type: "http", subdomain: sub, local, note };
-  } else if (portRaw && !sub) {
+  if (host && !portRaw) {
+    input = { type: "http", host, local, note };
+  } else if (portRaw && !host) {
     const m = local ? /^([^:]+):(\d+)$/.exec(local) : null;
     input = {
       type: "tcp",
@@ -249,7 +250,7 @@ function cmdCreate(rest: string[]): number {
       note,
     };
   } else {
-    process.stderr.write("错误：必须且只能指定 --subdomain 或 --remote-port 之一\n");
+    process.stderr.write("错误：必须且只能指定 --host 或 --remote-port 之一\n");
     return 1;
   }
 
@@ -338,7 +339,7 @@ export function runTunnelCli(argv: string[]): number | null {
     default:
       process.stderr.write(
         "zfrps tunnel <命令>\n\n" +
-          "  create --subdomain demo --local http://127.0.0.1:5173 [--note web]\n" +
+          "  create --host a.b.com --local http://127.0.0.1:5173 [--note web]\n" +
           "  create --remote-port 33061 --local 127.0.0.1:3306 --auth-token <至少8位> [--note mysql]\n" +
           "  list\n" +
           "  delete <tunnelId 或 key>\n" +

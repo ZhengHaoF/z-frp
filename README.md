@@ -1,8 +1,8 @@
 # z-frp
 
-自研的内网穿透工具：本地 `frpc` 主动连到公网 VPS 上的 `frps`，把本地 HTTP 服务和数据库 TCP 端口暴露成 `xxx.frp.example.com` 子域名，供自己与少数可信的人访问。
+自研的内网穿透工具：本地 `frpc` 主动连到公网 VPS 上的 `frps`，把本地 HTTP 服务和数据库 TCP 端口暴露成固定域名（如 `a.b.com`）或公网端口，供自己与少数可信的人访问。每条 HTTP 隧道对应一个完整域名，不再使用泛域名 + 子域名拼接（[ADR-0012](docs/adr/0012-fixed-domain-per-tunnel.md)）。
 
-设计背景与决策见 [`docs/DESIGN.md`](docs/DESIGN.md) 及 [`docs/adr/`](docs/adr/)。二期改为**服务端托管配置 + key 凭证**（[ADR-0010](docs/adr/0010-key-based-tunnel-provisioning.md)）：在服务端建好隧道拿到 key，客户端只需 `run.js -key <key>` 一句命令，无需配置文件。三期给 dashboard 加了**网页隧道管理面**（[ADR-0011](docs/adr/0011-writable-dashboard.md)）：建/轮换/删隧道都能在网页点，与 CLI 共用同一份 `tunnels.json`。
+设计背景与决策见 [`docs/DESIGN.md`](docs/DESIGN.md) 及 [`docs/adr/`](docs/adr/)。二期改为**服务端托管配置 + key 凭证**（[ADR-0010](docs/adr/0010-key-based-tunnel-provisioning.md)）：在服务端建好隧道拿到 key，客户端只需 `run.js -key <key>` 一句命令，无需配置文件。三期给 dashboard 加了**网页隧道管理面**（[ADR-0011](docs/adr/0011-writable-dashboard.md)）：建/轮换/删隧道都能在网页点，与 CLI 共用同一份 `tunnels.json`。域名模型随后改为**一条隧道一个完整域名**（[ADR-0012](docs/adr/0012-fixed-domain-per-tunnel.md)）。
 
 ## 架构
 
@@ -18,7 +18,7 @@
 ## 前置条件
 
 - 一台有**固定公网 IP** 的 Linux VPS，已备案域名（国内节点必须备案，非标端口也躲不掉）。
-- DNS：`*.frp.example.com` 泛解析到 VPS。
+- DNS：每个要暴露的 HTTP 域名（如 `a.b.com`）都加一条 A/CNAME 记录指向 VPS；不需要泛域名解析。
 - VPS 上装 Node.js ≥ 20、Caddy、pnpm。
 - 本地机器装 Node.js ≥ 20（无需 pnpm，跑编译好的 dist 即可）。
 
@@ -39,7 +39,6 @@ cp config/frps.example.json config/frps.json      # VPS 上，按需改
 
 **frps.json 要点**
 
-- `domain`：泛域名后缀，如 `frp.example.com`。
 - `tunnelsFile`：隧道存储文件，默认 `config/tunnels.json`。**首次启动会自动创建**。
 - `http`：给 Caddy 转发的入口，默认 `127.0.0.1:8080`。
 - `tcp.bindAddr`：TCP 入口监听地址，默认 `0.0.0.0`；安全组只放行用到的 `remotePort`。
@@ -51,9 +50,9 @@ cp config/frps.example.json config/frps.json      # VPS 上，按需改
 
 ```bash
 NODE=node
-# HTTP 隧道：把 demo.frp.example.com 映射到本地服务的 5173
+# HTTP 隧道：把 a.b.com 映射到本地服务的 5173
 $NODE packages/frps/dist/index.js tunnel create \
-  --subdomain demo --local http://127.0.0.1:5173
+  --host a.b.com --local http://127.0.0.1:5173
 # → 输出一串 64 位 key（只显示一次，保存好）
 
 # TCP 隧道：VPS 的 33061 映射到本地 3306，访客需 AUTH token
@@ -74,15 +73,15 @@ $NODE packages/frps/dist/index.js tunnel delete <id 或 key>   # 删除，旧 ke
 
 ```bash
 # 最简：用服务端登记的本地地址
-node packages/frpc/dist/index.js -key <你的key> -server wss://frp.example.com/_frp
+node packages/frpc/dist/index.js -key <你的key> -server wss://a.b.com/_frp
 
 # 换机器/换端口：用 -local 覆盖服务端登记的本地地址
 node packages/frpc/dist/index.js -key <你的key> \
-  -server wss://frp.example.com/_frp \
+  -server wss://a.b.com/_frp \
   -local http://127.0.0.1:3000          # HTTP 用 URL
 
 node packages/frpc/dist/index.js -key <你的key> \
-  -server wss://frp.example.com/_frp \
+  -server wss://a.b.com/_frp \
   -local 127.0.0.1:3307                 # TCP 用 host:port
 ```
 
@@ -107,7 +106,9 @@ systemctl daemon-reload && systemctl enable --now frps
 
 ## 访问
 
-HTTP 服务：浏览器打开 `https://demo.frp.example.com`。
+HTTP 服务：浏览器打开 `https://a.b.com`（建隧道时填的完整域名）。
+
+新增一个域名要改三处，缺一不可：**DNS 记录指向 VPS** → **Caddy 站点地址加上该域名**（见 `deploy/Caddyfile.example`）→ `tunnel create --host` 或网页建隧道填同一个域名。frps 只按请求 Host 头精确匹配已登记的域名，不认识没登记的名字。TCP 隧道不涉及域名，直接连 VPS 的 `remotePort`。
 
 数据库 TCP：因为入口有 AUTH 握手，**原生数据库客户端直连不了**。两种办法：
 
@@ -118,7 +119,7 @@ HTTP 服务：浏览器打开 `https://demo.frp.example.com`。
 // local-shim.mjs：把本地 3307 转发到 frps 的 33061
 import net from "node:net";
 net.createServer((c) => {
-  const u = net.connect(33061, "frp.example.com");
+  const u = net.connect(33061, "a.b.com");
   c.pipe(u); u.pipe(c);
   u.write("AUTH <tcp隧道的authToken>\n");
 }).listen(3307, "127.0.0.1");
@@ -126,10 +127,10 @@ net.createServer((c) => {
 
 ## Dashboard（网页管理）
 
-`https://dash.frp.example.com`，输入 `dashboard.user/password` 登录。可以：
+`https://dash.b.com`，输入 `dashboard.user/password` 登录。可以：
 
 - 看在线客户端、代理、活跃流、流量与隧道清单（每 10 秒自动刷新）；
-- **新建隧道**：选 TCP 填远程端口/本地地址/访问密码（有生成按钮），选 HTTP 填子域名/本地 URL；建完页面显示完整 key 供复制（只显示这一次）；
+- **新建隧道**：选 TCP 填远程端口/本地地址/访问密码（有生成按钮），选 HTTP 填完整域名（如 `a.b.com`）/本地 URL；建完页面显示完整 key 供复制（只显示这一次）；
 - 隧道清单每行可**轮换 key** 或**删除**（均有二次确认）。
 
 网页与 CLI 共用同一份 `tunnels.json`：在网页建的隧道能用 CLI 管理，反之亦然。key 轮换/删除后，在线客户端会在巡检周期内（默认约 30 秒，即心跳超时 `heartbeatTimeoutMs/3`）自动断开，需拿新 key 重启。

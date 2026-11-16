@@ -22,10 +22,9 @@ if (cliExit !== null) {
     const bootLog = new Logger("frps", "info");
     const cfg = loadConfig(configPath, bootLog);
     const log = new Logger("frps", cfg.logLevel ?? "info");
-    const registry = new Registry(cfg.domain);
+    const registry = new Registry();
     const hub = new TunnelHub(
       {
-        domain: cfg.domain,
         tunnelsFile: cfg.tunnelsFile ?? tunnelsFilePath(),
         heartbeatIntervalMs: cfg.heartbeatIntervalMs!,
         heartbeatTimeoutMs: cfg.heartbeatTimeoutMs!,

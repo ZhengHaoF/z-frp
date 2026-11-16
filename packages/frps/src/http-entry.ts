@@ -1,4 +1,4 @@
-/** HTTP 入口：泛域名 Host 路由 → 打开流 → 把 frpc 回传的数据写成 HTTP 响应。 */
+/** HTTP 入口：按完整域名的 Host 头路由 → 打开流 → 把 frpc 回传的数据写成 HTTP 响应。 */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { FLAG_FIN, type Logger } from "@zfrp/shared";
 import type { TunnelHub } from "./tunnel.js";
