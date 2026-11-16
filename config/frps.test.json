@@ -1,0 +1,24 @@
+{
+  "bindAddr": "127.0.0.1",
+  "bindPort": 17000,
+  "domain": "test.local",
+  "clients": {
+    "tester": "test-token-at-least-32-characters-long"
+  },
+  "http": {
+    "bindAddr": "127.0.0.1",
+    "port": 18080
+  },
+  "tcp": {
+    "bindAddr": "127.0.0.1",
+    "enabled": true
+  },
+  "dashboard": {
+    "enabled": true,
+    "bindAddr": "127.0.0.1",
+    "port": 17500,
+    "user": "admin",
+    "password": "testpass"
+  },
+  "logLevel": "debug"
+}

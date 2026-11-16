@@ -1,0 +1,15 @@
+[Unit]
+Description=z-frp client (frpc)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/z-frp-client
+Environment=ZFRP_FRPC_CONFIG=/opt/z-frp-client/config/frpc.json
+ExecStart=/usr/bin/node /opt/z-frp-client/packages/frpc/dist/index.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

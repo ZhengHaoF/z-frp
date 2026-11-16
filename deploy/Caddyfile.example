@@ -1,0 +1,32 @@
+# z-frp 前置 Caddy 示例
+# 泛域名 *.frp.example.com 指向本机；自动证书；HTTP/WS 分流到 frps。
+# 数据库 TCP 不走 Caddy，由 frps 直接监听 remotePort（需安全组放行）。
+
+frp.example.com, *.frp.example.com {
+	# DNS 已备案并把 A 记录（含泛域名）指到本机即可自动签证书
+	tls {
+		# 如需指定 ACME 邮箱，取消注释并替换
+		# email admin@example.com
+	}
+
+	# 客户端隧道 WebSocket
+	@ws path /_frp
+	handle @ws {
+		reverse_proxy 127.0.0.1:7000
+	}
+
+	# 只读 dashboard（第二层 basic auth，与 Caddy 侧再叠一层也可）
+	@dash host dash.frp.example.com
+	handle @dash {
+		basicauth {
+			# 用 caddy hash-password 生成
+			admin $2a$14$REPLACE_WITH_CADDY_HASHED_PASSWORD
+		}
+		reverse_proxy 127.0.0.1:7500
+	}
+
+	# 其余交给 frps HTTP 入口按 Host 头路由
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}

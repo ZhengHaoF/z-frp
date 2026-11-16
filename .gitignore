@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+config/frps.json
+config/frpc.json
+.workbuddy/
+.DS_Store

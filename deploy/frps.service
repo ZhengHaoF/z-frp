@@ -1,0 +1,18 @@
+[Unit]
+Description=z-frp server (frps)
+After=network-online.target caddy.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zfrp
+Group=zfrp
+WorkingDirectory=/opt/z-frp
+Environment=ZFRP_FRPS_CONFIG=/opt/z-frp/config/frps.json
+ExecStart=/usr/bin/node /opt/z-frp/packages/frps/dist/index.js
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+{
+  "server": "ws://127.0.0.1:17000/_frp",
+  "clientId": "tester",
+  "token": "test-token-at-least-32-characters-long",
+  "reconnectBaseMs": 300,
+  "logLevel": "debug",
+  "proxies": [
+    {
+      "name": "web",
+      "type": "http",
+      "subdomain": "demo",
+      "local": "http://127.0.0.1:19090"
+    },
+    {
+      "name": "echo",
+      "type": "tcp",
+      "remotePort": 19091,
+      "localHost": "127.0.0.1",
+      "localPort": 19092,
+      "authToken": "tcp-auth-token-at-least-8-chars"
+    }
+  ]
+}

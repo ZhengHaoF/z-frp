@@ -1,0 +1,24 @@
+{
+  "server": "wss://frp.example.com/_frp",
+  "clientId": "laptop",
+  "token": "replace-with-a-long-random-token-at-least-32-chars",
+  "heartbeatIntervalMs": 30000,
+  "reconnectBaseMs": 1000,
+  "logLevel": "info",
+  "proxies": [
+    {
+      "name": "web",
+      "type": "http",
+      "subdomain": "demo",
+      "local": "http://127.0.0.1:5173"
+    },
+    {
+      "name": "mysql",
+      "type": "tcp",
+      "remotePort": 33061,
+      "localHost": "127.0.0.1",
+      "localPort": 3306,
+      "authToken": "replace-with-another-long-random-token"
+    }
+  ]
+}

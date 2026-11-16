@@ -1,0 +1,27 @@
+{
+  "bindAddr": "127.0.0.1",
+  "bindPort": 7000,
+  "domain": "frp.example.com",
+  "clients": {
+    "laptop": "replace-with-a-long-random-token-at-least-32-chars",
+    "nas": "another-long-random-token-at-least-32-chars"
+  },
+  "http": {
+    "bindAddr": "127.0.0.1",
+    "port": 8080
+  },
+  "tcp": {
+    "bindAddr": "0.0.0.0",
+    "enabled": true
+  },
+  "dashboard": {
+    "enabled": true,
+    "bindAddr": "127.0.0.1",
+    "port": 7500,
+    "user": "admin",
+    "password": "replace-with-strong-password"
+  },
+  "heartbeatIntervalMs": 30000,
+  "heartbeatTimeoutMs": 90000,
+  "logLevel": "info"
+}
