@@ -47,7 +47,31 @@ export interface TunnelRecord {
   /** 客户端连接时注册用的身份；默认等于 tunnelId */
   clientId: string;
   proxies: ProxySpec[];
+  /** 备注名，便于在 dashboard 识别；旧记录缺此字段时视为空 */
+  note?: string;
 }
+
+/** 新建隧道的表单输入（网页与 CLI 共用） */
+export interface CreateTunnelInput {
+  note?: string;
+  type: "tcp" | "http";
+  /** HTTP：子域名 */
+  subdomain?: string;
+  /** HTTP：本地 URL */
+  local?: string;
+  /** TCP：远程端口 */
+  remotePort?: number;
+  /** TCP：本地主机 */
+  localHost?: string;
+  /** TCP：本地端口 */
+  localPort?: number;
+  /** TCP：访问者 AUTH 口令 */
+  authToken?: string;
+}
+
+export type CreateTunnelResult =
+  | { ok: true; record: TunnelRecord; key: string }
+  | { ok: false; error: string };
 
 /** tunnels.json 文件结构 */
 export interface TunnelsFile {
