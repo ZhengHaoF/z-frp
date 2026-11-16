@@ -126,74 +126,103 @@ function toCreateInput(body: Record<string, unknown>): CreateTunnelInput {
 const PAGE = String.raw`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>z-frp dashboard</title>
 <style>
-body{font:14px/1.6 system-ui,sans-serif;margin:2rem;color:#2c2c2a;background:#faf9f6}
+body{font:14px/1.6 system-ui,sans-serif;margin:0;color:#2c2c2a;background:#faf9f6}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 24px 60px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
 h1{font-size:20px;font-weight:500;margin:0}h2{font-size:16px;font-weight:500;margin:1.5rem 0 .5rem}
 table{border-collapse:collapse;width:100%;background:#fff}
 th,td{border:1px solid #ddd;padding:8px 10px;text-align:left;vertical-align:top}
 th{background:#f1efe8;font-weight:500}
 .on{color:#3b6d11}.off{color:#993c1d}.meta{color:#5f5e5a;margin:.25rem 0 1rem}
-.card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:1rem 1.25rem;margin-bottom:1rem}
 label{display:flex;flex-direction:column;gap:4px;font-size:13px}
 input,select,button{font:inherit;padding:6px 8px}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
-.hint{font-size:12px;color:#888}
-.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
-button{cursor:pointer}button.primary{background:#1d6f42;color:#fff;border:1px solid #1d6f42}
+.hint{font-size:12px;color:#888;margin:.25rem 0 .5rem}
+.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+button{cursor:pointer}button.primary{background:#1d6f42;color:#fff;border:1px solid #1d6f42;border-radius:5px}
+button.ghost{background:#fff;border:1px solid #ccc;border-radius:5px}
 button.danger{color:#993c1d}button.link{background:none;border:none;color:#185fa5;padding:0;text-decoration:underline}
-.keybox{background:#f1efe8;border-radius:6px;padding:10px 12px;margin-top:10px;display:none}
+.modal-backdrop{position:fixed;inset:0;background:rgba(20,20,18,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20}
+.modal-backdrop[hidden]{display:none}
+.modal{background:#fff;border-radius:10px;width:min(560px,100%);max-height:90vh;overflow:auto;box-shadow:0 16px 40px rgba(0,0,0,.22)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #eee}
+.modal-head h2{margin:0}
+.modal-body{padding:18px 20px}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid #eee}
+.icon-btn{border:none;background:none;font-size:22px;line-height:1;color:#777;padding:0 4px}
+.keybox{background:#f1efe8;border-radius:6px;padding:10px 12px;margin-top:10px}
 code{font-family:ui-monospace,monospace;word-break:break-all}
 </style></head><body>
-<h1>z-frp 运行状态</h1>
-<p class="meta" id="meta">加载中…</p>
-
-<h2>新建隧道</h2>
-<div class="card">
-  <form id="create-form">
-    <div class="row">
-      <label>备注名<input name="note" placeholder="例如：开发机 MySQL" maxlength="120"></label>
-      <label>隧道类型<select name="type" id="type">
-        <option value="tcp">TCP 端口映射</option>
-        <option value="http">HTTP 子域名</option>
-      </select></label>
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <h1>z-frp 运行状态</h1>
+      <p class="meta" id="meta">加载中…</p>
     </div>
-    <p class="hint">UDP / HTTPS（独立类型）/ WOL：当前版本不支持。HTTPS 由前置 Caddy 统一处理，HTTP 隧道天然支持。</p>
+    <button type="button" id="open-create" class="primary">+ 新建隧道</button>
+  </div>
+  <div id="live"></div>
+</div>
 
-    <div id="tcp-fields">
-      <div class="row">
-        <label>本地 IP<input name="localHost" value="127.0.0.1"></label>
-        <label>本地端口<input name="localPort" type="number" min="1" max="65535" value="3306"></label>
+<div class="modal-backdrop" id="create-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="create-title">
+    <div class="modal-head"><h2 id="create-title">新建隧道</h2><button type="button" class="icon-btn" data-close="create-modal" aria-label="关闭">×</button></div>
+    <form id="create-form">
+      <div class="modal-body">
+        <div class="row">
+          <label>备注名<input name="note" placeholder="例如：开发机 MySQL" maxlength="120"></label>
+          <label>隧道类型<select name="type" id="type">
+            <option value="tcp">TCP 端口映射</option>
+            <option value="http">HTTP 子域名</option>
+          </select></label>
+        </div>
+        <p class="hint">UDP / HTTPS（独立类型）/ WOL：当前版本不支持。HTTPS 由前置 Caddy 统一处理，HTTP 隧道天然支持。</p>
+
+        <div id="tcp-fields">
+          <div class="row">
+            <label>本地 IP<input name="localHost" value="127.0.0.1"></label>
+            <label>本地端口<input name="localPort" type="number" min="1" max="65535" value="3306"></label>
+          </div>
+          <div class="row">
+            <label>远程端口<input name="remotePort" type="number" min="1" max="65535" value="33061" placeholder="如 33061"></label>
+            <label>访问密码（authToken）<span style="display:flex;gap:8px">
+              <input name="authToken" id="authToken" placeholder="至少 8 位">
+              <button type="button" id="gen-token">生成</button>
+            </span></label>
+          </div>
+          <p class="hint">访客须先 AUTH 握手；远程端口需在 VPS 安全组放行。</p>
+        </div>
+
+        <div id="http-fields" style="display:none">
+          <div class="row">
+            <label>子域名<input name="subdomain" placeholder="如 demo → demo.frp.example.com"></label>
+            <label>本地 URL<input name="local" placeholder="http://127.0.0.1:5173"></label>
+          </div>
+          <p class="hint">需泛域名 *.frp.example.com 已解析到 VPS。</p>
+        </div>
       </div>
-      <div class="row">
-        <label>远程端口<input name="remotePort" type="number" min="1" max="65535" value="33061" placeholder="如 33061"></label>
-        <label>访问密码（authToken）<span style="display:flex;gap:8px">
-          <input name="authToken" id="authToken" placeholder="至少 8 位">
-          <button type="button" id="gen-token">生成</button>
-        </span></label>
+      <div class="modal-foot">
+        <button type="button" class="ghost" data-close="create-modal">取消</button>
+        <button type="submit" class="primary">创建隧道</button>
       </div>
-      <p class="hint">访客须先 AUTH 握手；远程端口需在 VPS 安全组放行。</p>
-    </div>
-
-    <div id="http-fields" style="display:none">
-      <div class="row">
-        <label>子域名<input name="subdomain" placeholder="如 demo → demo.frp.example.com"></label>
-        <label>本地 URL<input name="local" placeholder="http://127.0.0.1:5173"></label>
-      </div>
-      <p class="hint">需泛域名 *.frp.example.com 已解析到 VPS。</p>
-    </div>
-
-    <div class="actions"><button type="submit" class="primary">创建隧道</button></div>
-  </form>
-  <div class="keybox" id="keybox">
-    <div>隧道已创建：<code id="new-id"></code></div>
-    <div style="margin-top:6px">下面的 key 只显示这一次，请立即复制：</div>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-      <code id="new-key" style="flex:1"></code>
-      <button type="button" id="copy-key">复制</button>
-    </div>
+    </form>
   </div>
 </div>
 
-<div id="live"></div>
+<div class="modal-backdrop" id="key-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="key-title">
+    <div class="modal-head"><h2 id="key-title">隧道已创建</h2><button type="button" class="icon-btn" data-close="key-modal" aria-label="关闭">×</button></div>
+    <div class="modal-body">
+      <div style="margin-bottom:8px">隧道 ID：<code id="new-id"></code></div>
+      <div>下面的 key 只显示这一次，请立即复制：</div>
+      <div class="keybox"><code id="new-key"></code></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="ghost" data-close="key-modal">关闭</button>
+      <button type="button" class="primary" id="copy-key">复制 key</button>
+    </div>
+  </div>
+</div>
 
 <script>
 (function(){
@@ -206,6 +235,26 @@ code{font-family:ui-monospace,monospace;word-break:break-all}
     httpFields.style.display = isTcp ? 'none' : '';
   }
   typeSel.addEventListener('change', toggleFields);
+
+  function openModal(id){ document.getElementById(id).hidden = false; }
+  function closeModal(id){ document.getElementById(id).hidden = true; }
+  function showKey(id, key, title){
+    document.getElementById('key-title').textContent = title;
+    document.getElementById('new-id').textContent = id;
+    document.getElementById('new-key').textContent = key;
+    document.getElementById('copy-key').textContent = '复制 key';
+    openModal('key-modal');
+  }
+  document.getElementById('open-create').addEventListener('click', function(){ openModal('create-modal'); });
+  document.addEventListener('click', function(e){
+    if(!e.target || !e.target.closest) return;
+    var closer = e.target.closest('[data-close]');
+    if(closer){ closeModal(closer.getAttribute('data-close')); return; }
+    if(e.target.classList && e.target.classList.contains('modal-backdrop')) closeModal(e.target.id);
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape'){ closeModal('create-modal'); closeModal('key-modal'); }
+  });
 
   document.getElementById('gen-token').addEventListener('click', function(){
     var bytes = new Uint8Array(12);
@@ -268,9 +317,7 @@ code{font-family:ui-monospace,monospace;word-break:break-all}
       fetch('/api/tunnels/'+encodeURIComponent(id)+'/rotate', {method:'POST'})
         .then(function(r){return r.json();}).then(function(res){
           if(!res.ok){alert('轮换失败：'+res.error);return;}
-          document.getElementById('new-id').textContent = id;
-          document.getElementById('new-key').textContent = res.key;
-          document.getElementById('keybox').style.display = 'block';
+          showKey(id, res.key, 'key 已轮换');
           refresh();
         }).catch(function(err){alert('请求失败：'+err);});
     }
@@ -297,9 +344,8 @@ code{font-family:ui-monospace,monospace;word-break:break-all}
       body:JSON.stringify(body)
     }).then(function(r){return r.json();}).then(function(res){
       if(!res.ok){alert('创建失败：'+res.error);return;}
-      document.getElementById('new-id').textContent = res.record.tunnelId;
-      document.getElementById('new-key').textContent = res.key;
-      document.getElementById('keybox').style.display = 'block';
+      showKey(res.record.tunnelId, res.key, '隧道已创建');
+      closeModal('create-modal');
       form.reset();
       toggleFields();
       refresh();
