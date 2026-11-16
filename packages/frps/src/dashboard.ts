@@ -193,7 +193,6 @@ code{font-family:ui-monospace,monospace;word-break:break-all}
   </div>
 </div>
 
-<h2>隧道清单</h2>
 <div id="live"></div>
 
 <script>
@@ -243,7 +242,7 @@ code{font-family:ui-monospace,monospace;word-break:break-all}
     }).join('');
 
     document.getElementById('live').innerHTML =
-      '<table><thead><tr><th>客户端</th><th>状态</th><th>代理</th><th>活跃流</th><th>最后心跳</th></tr></thead><tbody>'+
+      '<h2>客户端</h2><table><thead><tr><th>客户端</th><th>状态</th><th>代理</th><th>活跃流</th><th>最后心跳</th></tr></thead><tbody>'+
       (clientRows || '<tr><td colspan="5">暂无客户端</td></tr>')+'</tbody></table>'+
       '<h2>隧道清单</h2><table><thead><tr><th>隧道 ID</th><th>备注</th><th>key</th><th>状态</th><th>映射</th><th>操作</th></tr></thead><tbody>'+
       (tunnelRows || '<tr><td colspan="6">暂无隧道</td></tr>')+'</tbody></table>';
