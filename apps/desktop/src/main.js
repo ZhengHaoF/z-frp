@@ -79,6 +79,7 @@ const el = {
   copyLogs: document.getElementById("copyLogs"),
   toast: document.getElementById("toast"),
   versionText: document.getElementById("versionText"),
+  proxyCount: document.getElementById("proxyCount"),
 };
 
 const STATE_TEXT = {
@@ -159,6 +160,7 @@ function appendLog(level, message, time) {
 
 function renderProxies(proxies) {
   el.proxyList.innerHTML = "";
+  el.proxyCount.textContent = proxies && proxies.length ? `${proxies.length} 个` : "";
   if (!proxies || proxies.length === 0) {
     const li = document.createElement("li");
     li.className = "empty";
@@ -184,6 +186,11 @@ function renderProxies(proxies) {
 }
 
 /* ---------- 交互 ---------- */
+
+// 滚动后顶部会露出半行历史，用渐隐遮一下，避免看起来像被裁切
+el.logBody.addEventListener("scroll", () => {
+  el.logBody.classList.toggle("scrolled", el.logBody.scrollTop > 2);
+});
 
 el.toggleKey.addEventListener("click", () => {
   el.keyInput.type = el.keyInput.type === "password" ? "text" : "password";
@@ -297,7 +304,7 @@ listen("zfrp://log", (event) => {
     el.serverInput.value = "wss://frp.infocloud.top/_frp";
   }
   try {
-    el.versionText.textContent = await invoke("app_version");
+    el.versionText.textContent = `v${await invoke("app_version")}`;
   } catch {
     /* 保持默认 */
   }

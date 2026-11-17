@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 
 /// 持久化到 app_config_dir/settings.json 的用户设置
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Settings {
     #[serde(default)]
@@ -23,6 +23,20 @@ struct Settings {
     remember: bool,
     #[serde(default)]
     auto_connect: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        // 首次启动（没有 settings.json）时不该沿用 bool 的 false：
+        // 「记住设置与 Key」默认应当是勾上的，否则用户会以为 key 被吞了。
+        Self {
+            key: String::new(),
+            server: "wss://frp.infocloud.top/_frp".into(),
+            local: String::new(),
+            remember: true,
+            auto_connect: false,
+        }
+    }
 }
 
 fn default_true() -> bool {
