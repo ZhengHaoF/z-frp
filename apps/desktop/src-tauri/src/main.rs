@@ -2,12 +2,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use frpc_core::{ClientOptions, ClientStatus, ConnState, FrpcClient, LogEvent, LogLevel, ProxySpec};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 use tokio::sync::Mutex;
+
+/// 托盘图标 id，用于从 AppHandle 取回图标更新 tooltip
+const TRAY_ID: &str = "zfrp-tray";
+/// 托盘菜单项 id
+const MENU_SHOW: &str = "tray-show";
+const MENU_QUIT: &str = "tray-quit";
 
 /// 持久化到 app_config_dir/settings.json 的用户设置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +64,18 @@ impl Settings {
 struct AppState {
     client: Mutex<Option<Arc<FrpcClient>>>,
     settings_path: PathBuf,
+    /// 真正的退出请求（托盘菜单「退出」或系统关机），与「关窗仅隐藏」区分开
+    quitting: AtomicBool,
+}
+
+impl AppState {
+    fn request_quit(&self) {
+        self.quitting.store(true, Ordering::SeqCst);
+    }
+
+    fn is_quitting(&self) -> bool {
+        self.quitting.load(Ordering::SeqCst)
+    }
 }
 
 // ---------- 事件负载 ----------
@@ -200,7 +221,18 @@ async fn start_client(
         loop {
             tokio::select! {
                 Some(status) = status_rx.recv() => {
-                    let _ = app_handle.emit("zfrp://status", status_event(&status));
+                    let view = status_event(&status);
+                    // 托盘悬停文字跟随连接状态，关窗后也能一眼看到隧道情况
+                    if let Some(tray) = app_handle.tray_by_id(TRAY_ID) {
+                        let tip = match view.state {
+                            "online" => format!("z-frp · 已连接 · {}", view.tunnel_id.as_deref().unwrap_or("—")),
+                            "connecting" => "z-frp · 连接中".into(),
+                            "reconnecting" => "z-frp · 重连中".into(),
+                            _ => "z-frp · 未连接".into(),
+                        };
+                        let _ = tray.set_tooltip(Some(tip));
+                    }
+                    let _ = app_handle.emit("zfrp://status", view);
                 }
                 Some(log) = log_rx.recv() => {
                     let _ = app_handle.emit("zfrp://log", log_payload(&log));
@@ -224,6 +256,66 @@ async fn stop_client(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// 显示并聚焦主窗口（托盘左键 / 菜单「显示窗口」）
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// 真正退出：先停客户端让服务端立刻感知离线，再退出进程
+async fn quit_app(app: AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        state.request_quit();
+        let client = state.client.lock().await.take();
+        if let Some(c) = client {
+            c.stop().await;
+        }
+    }
+    app.exit(0);
+}
+
+/// 构建系统托盘图标：左键显示窗口，右键菜单「显示窗口 / 退出」
+fn build_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
+    let show_item = MenuItem::with_id(app, MENU_SHOW, "显示主窗口", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    let mut builder = TrayIconBuilder::with_id(TRAY_ID)
+        .tooltip("z-frp · 未连接")
+        .menu(&menu)
+        // 左键留给「显示窗口」，不要弹菜单（菜单走右键）
+        .show_menu_on_left_click(false);
+
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+
+    builder
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(&tray.app_handle());
+            }
+        })
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            MENU_SHOW => show_main_window(app),
+            MENU_QUIT => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    quit_app(app).await;
+                });
+            }
+            _ => {}
+        })
+        .build(app)
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -232,7 +324,12 @@ fn main() {
                 .app_config_dir()
                 .unwrap_or_else(|_| PathBuf::from("."));
             let settings_path = dir.join("settings.json");
-            app.manage(AppState { client: Mutex::new(None), settings_path });
+            app.manage(AppState {
+                client: Mutex::new(None),
+                settings_path,
+                quitting: AtomicBool::new(false),
+            });
+            build_tray(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -243,18 +340,32 @@ fn main() {
             stop_client
         ])
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // 关窗时尽力停掉客户端，避免残留连接
-                let app = window.app_handle().clone();
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<AppState>();
+                if state.is_quitting() {
+                    // 真正退出（托盘退出 / 系统关机）时放行，不阻止关机流程
+                    return;
+                }
+                // 关窗只隐藏窗口，客户端继续在后台跑
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("启动 z-frp 桌面客户端失败")
+        .run(|app: &AppHandle, event: RunEvent| {
+            if let RunEvent::ExitRequested { .. } = event {
+                // 系统关机、注销等由外部触发的退出：标记退出并停客户端，
+                // 不调用 prevent_exit，避免拖住关机流程
+                let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    let state = app.state::<AppState>();
-                    let client = state.client.lock().await.take();
-                    if let Some(c) = client {
-                        c.stop().await;
+                    if let Some(state) = handle.try_state::<AppState>() {
+                        state.request_quit();
+                        if let Some(client) = state.client.lock().await.take() {
+                            client.stop().await;
+                        }
                     }
                 });
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("启动 z-frp 桌面客户端失败");
+        });
 }
