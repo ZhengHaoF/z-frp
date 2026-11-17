@@ -6,6 +6,7 @@
 import WebSocket from "ws";
 import {
   DEFAULTS,
+  MAX_PAYLOAD,
   TUNNEL_PATH,
   decodeControl,
   decodeDataFrame,
@@ -130,9 +131,22 @@ export class FrpcClient {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encodeControl(frame as ControlFrame));
   }
 
+  /**
+   * 发送数据帧。单帧上限 64KB，超长响应必须切片，否则 encodeDataFrame 会抛错，
+   * 而抛错发生在流回调里 → 整个进程挂掉（请求侧表现为对端一直等到超时）。
+   * 分片只有最后一片携带 flags（FIN/RST）。
+   */
   private sendData: Sender = (streamId, payload, flags) => {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
-    this.ws.send(encodeDataFrame(streamId, payload, flags));
+    if (payload.length <= MAX_PAYLOAD) {
+      this.ws.send(encodeDataFrame(streamId, payload, flags));
+      return;
+    }
+    for (let offset = 0; offset < payload.length; offset += MAX_PAYLOAD) {
+      const chunk = payload.subarray(offset, offset + MAX_PAYLOAD);
+      const isLast = offset + MAX_PAYLOAD >= payload.length;
+      this.ws.send(encodeDataFrame(streamId, chunk, isLast ? flags : 0));
+    }
   };
 
   private sendHead = (streamId: number, statusCode: number, headers: Record<string, string>): void => {
