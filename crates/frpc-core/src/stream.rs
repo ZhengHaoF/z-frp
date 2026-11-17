@@ -1,9 +1,10 @@
 //! 本地代理流：每个 stream 一个 tokio task，连接本地服务并双向转发。
 //! 所有 stream 共享同一条 WS 写端（Arc<Mutex>），对应 Node 的单连接多路复用。
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use futures_util::SinkExt;
+use futures_util::{stream, SinkExt};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -177,7 +178,7 @@ pub fn spawn_http_stream(
     local_base: &str,
     meta: &HttpRequestMeta,
 ) -> mpsc::Sender<DataFrame> {
-    let (tx, mut rx) = mpsc::channel::<DataFrame>(256);
+    let (tx, rx) = mpsc::channel::<DataFrame>(256);
     let writer_http = writer.clone();
     let local = local_base.to_string();
     let request_meta = meta.clone();
@@ -219,18 +220,36 @@ pub fn spawn_http_stream(
             }
         }
 
-        // 请求体：从 rx 接收 frps 数据。先缓冲直到 FIN（Node 是流式，这里简化为收集）
-        let mut body = Vec::new();
-        let mut rst = false;
-        while let Some(frame) = rx.recv().await {
-            body.extend_from_slice(&frame.payload);
-            if frame.flags & FLAG_RST != 0 { rst = true; break; }
-            if frame.flags & FLAG_FIN != 0 { break; }
-        }
-        if rst {
-            registry.lock().await.remove(stream_id);
-            return;
-        }
+        // 请求体：边收边发，不再攒满整个 body。
+        // 大请求（AI 的长 prompt、图片 base64）以前会整段缓冲在这里，上游要等最后一个字节才开始处理。
+        let rst_seen = Arc::new(AtomicBool::new(false));
+        let rst_flag = rst_seen.clone();
+        let body_stream = stream::unfold(
+            (rx, false),
+            move |(mut rx, done): (mpsc::Receiver<DataFrame>, bool)| {
+                let rst_flag = rst_flag.clone();
+                async move {
+                    if done {
+                        return None;
+                    }
+                    loop {
+                        let frame = rx.recv().await?;
+                        if frame.flags & FLAG_RST != 0 {
+                            rst_flag.store(true, Ordering::Relaxed);
+                            return None;
+                        }
+                        let fin = frame.flags & FLAG_FIN != 0;
+                        if !frame.payload.is_empty() {
+                            let chunk = Ok::<_, std::io::Error>(bytes::Bytes::from(frame.payload));
+                            return Some((chunk, (rx, fin)));
+                        }
+                        if fin {
+                            return None;
+                        }
+                    }
+                }
+            },
+        );
 
         // 构建 client：关闭自动解压，保持 body 原样（关键：reqwest 默认 gzip 会改 body）
         let client = reqwest::Client::builder()
@@ -240,7 +259,18 @@ pub fn spawn_http_stream(
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        let response = client.request(method, url).headers(headers).body(body).send().await;
+        let response = client
+            .request(method, url)
+            .headers(headers)
+            .body(reqwest::Body::wrap_stream(body_stream))
+            .send()
+            .await;
+
+        if rst_seen.load(Ordering::Relaxed) {
+            registry.lock().await.remove(stream_id);
+            return;
+        }
+
         let response = match response {
             Ok(r) => r,
             Err(e) => {
