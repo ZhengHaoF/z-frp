@@ -171,7 +171,7 @@ impl FrpcClient {
                 break;
             }
             self.emit(ConnState::Connecting, None, None, vec![], None).await;
-            self.log(LogLevel::Info, format!("连接 frps: {url} (第 {} 次)", attempt + 1)).await;
+            self.log(LogLevel::Info, format!("连接 frps：{url}（第 {} 次）", attempt + 1)).await;
 
             match self.connect_once(&url, &mut stop_rx, &was_online).await {
                 Ok(()) => {
@@ -179,7 +179,7 @@ impl FrpcClient {
                     break;
                 }
                 Err(e) => {
-                    self.log(LogLevel::Warn, format!("连接中断: {e}")).await;
+                    self.log(LogLevel::Warn, format!("连接中断：{e}")).await;
                     // 本次连接曾成功上线过，说明网络/服务端恢复能力正常，退避计数归零
                     if was_online.swap(false, Ordering::SeqCst) {
                         attempt = 0;
@@ -280,7 +280,7 @@ impl FrpcClient {
                                     heartbeat_timer = interval(heartbeat_interval);
                                     heartbeat_timer.tick().await;
                                     last_ack = Instant::now();
-                                    self.log(LogLevel::Info, format!("认证通过, clientId={cid}")).await;
+                                    self.log(LogLevel::Info, format!("认证通过，clientId={cid}")).await;
                                     Self::send_control(&writer, ClientFrame::ConfigPull {
                                         v: 1,
                                         key: self.opts.key.clone(),
@@ -294,7 +294,7 @@ impl FrpcClient {
                                     tunnel_id = Some(tid.clone());
                                     client_id = Some(cid.clone());
                                     proxies = ps;
-                                    self.log(LogLevel::Info, format!("已获取隧道配置: tunnelId={tid}, 代理数={}", proxies.len())).await;
+                                    self.log(LogLevel::Info, format!("已获取隧道配置：tunnelId={tid}，代理数={}", proxies.len())).await;
                                     let reg_proxies: Vec<RegisterProxy> = proxies.iter().map(RegisterProxy::from).collect();
                                     Self::send_control(&writer, ClientFrame::Register { v: 1, proxies: reg_proxies }).await?;
                                 }
@@ -304,11 +304,11 @@ impl FrpcClient {
                                 ServerFrame::RegisterOk { rejected, .. } => {
                                     was_online.store(true, Ordering::SeqCst);
                                     if rejected.is_empty() {
-                                        self.log(LogLevel::Info, format!("全部代理注册成功 ({})", proxies.len())).await;
+                                        self.log(LogLevel::Info, format!("全部代理注册成功（{}）", proxies.len())).await;
                                         self.emit(ConnState::Online, tunnel_id.clone(), client_id.clone(), proxies.clone(), None).await;
                                     } else {
                                         let reasons: Vec<String> = rejected.iter().map(|r| format!("{}: {}", r.name, r.reason)).collect();
-                                        self.log(LogLevel::Warn, format!("部分代理注册被拒: {}", reasons.join("; "))).await;
+                                        self.log(LogLevel::Warn, format!("部分代理注册被拒：{}", reasons.join("；"))).await;
                                         self.emit(ConnState::Online, tunnel_id.clone(), client_id.clone(), proxies.clone(), Some(reasons.join("; "))).await;
                                     }
                                 }
@@ -322,12 +322,12 @@ impl FrpcClient {
                                     let proxy = proxies.iter().find(|p| p.name() == proxy_name).cloned();
                                     let sender = match proxy {
                                         Some(ProxySpec::Tcp(t)) => {
-                                            self.log(LogLevel::Info, format!("开 TCP stream id={stream_id} -> {}:{}", t.local_host, t.local_port)).await;
+                                            self.log(LogLevel::Info, format!("打开 TCP stream id={stream_id} → {}:{}", t.local_host, t.local_port)).await;
                                             Some(spawn_tcp_stream(writer.clone(), registry.clone(), stream_id, t.local_host.clone(), t.local_port))
                                         }
                                         Some(ProxySpec::Http(h)) => {
                                             if let Some(meta) = &req {
-                                                self.log(LogLevel::Info, format!("开 HTTP stream id={stream_id} -> {}", h.local)).await;
+                                                self.log(LogLevel::Info, format!("打开 HTTP stream id={stream_id} → {}", h.local)).await;
                                                 Some(spawn_http_stream(writer.clone(), registry.clone(), stream_id, &h.local, meta))
                                             } else {
                                                 self.log(LogLevel::Warn, format!("HTTP stream id={stream_id} 缺少请求元信息")).await;
