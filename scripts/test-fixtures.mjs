@@ -14,6 +14,8 @@ httpServer.listen(19090, "127.0.0.1", () => console.log("fixture http :19090"));
 const tcpServer = net.createServer((socket) => {
   socket.write("HELLO\n");
   socket.on("data", (chunk) => socket.write(Buffer.from(chunk.toString().toUpperCase())));
+  // 客户端被强杀时会 ECONNRESET，测试 fixture 不该因此退出
+  socket.on("error", () => socket.destroy());
 });
 tcpServer.listen(19092, "127.0.0.1", () => console.log("fixture tcp :19092"));
 
