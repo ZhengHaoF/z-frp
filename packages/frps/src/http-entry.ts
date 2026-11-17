@@ -12,7 +12,16 @@ export interface HttpEntryOptions {
 
 export function startHttpEntry(hub: TunnelHub, opts: HttpEntryOptions): Server {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    void handle(req, res);
+    void handle(req, res).catch((err: unknown) => {
+      // 单个请求出错不能带崩整个进程
+      opts.log.warn("HTTP 请求处理异常", {
+        host: req.headers.host,
+        path: req.url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+      if (!res.writableEnded) res.end("z-frp: internal error");
+    });
   });
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "z-frp",
+  "version": "0.1.0",
+  "identifier": "top.infocloud.zfrp",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "z-frp 客户端",
+        "width": 1000,
+        "height": 720,
+        "minWidth": 860,
+        "minHeight": 620,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
+    "shortDescription": "z-frp 内网穿透客户端",
+    "longDescription": "z-frp 桌面客户端：填入隧道 Key 即可把本地 HTTP/TCP 服务通过自建 frps 暴露到公网。"
+  }
+}

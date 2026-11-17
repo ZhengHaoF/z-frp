@@ -8,6 +8,7 @@ import type { Duplex } from "node:stream";
 import {
   FLAG_FIN,
   FLAG_RST,
+  MAX_PAYLOAD,
   createStreamIdGenerator,
   decodeControl,
   decodeDataFrame,
@@ -74,9 +75,18 @@ export class TunnelHub {
     ws.send(encodeControl(frame));
   }
 
+  /** 发送数据帧；超过单帧上限时自动切片，仅最后一片携带 flags。 */
   private sendData(ws: WebSocket, streamId: number, payload: Buffer, flags = 0): void {
     if (ws.readyState !== WebSocket.OPEN) return;
-    ws.send(encodeDataFrame(streamId, payload, flags));
+    if (payload.length <= MAX_PAYLOAD) {
+      ws.send(encodeDataFrame(streamId, payload, flags));
+      return;
+    }
+    for (let offset = 0; offset < payload.length; offset += MAX_PAYLOAD) {
+      const chunk = payload.subarray(offset, offset + MAX_PAYLOAD);
+      const isLast = offset + MAX_PAYLOAD >= payload.length;
+      ws.send(encodeDataFrame(streamId, chunk, isLast ? flags : 0));
+    }
   }
 
   private countIn(clientId: string, bytes: number): void {

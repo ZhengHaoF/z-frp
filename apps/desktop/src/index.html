@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>z-frp 客户端</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">z</span>
+        <div class="brand-text">
+          <strong>z-frp 客户端</strong>
+          <span class="muted" id="versionText">v0.1.0</span>
+        </div>
+      </div>
+      <div class="status-pill" id="statusPill" data-state="offline">
+        <span class="dot"></span>
+        <span id="statusText">未连接</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="card setup">
+        <h2>连接设置</h2>
+
+        <label for="keyInput">隧道 Key</label>
+        <div class="input-row">
+          <input id="keyInput" type="password" spellcheck="false" placeholder="在 dashboard 隧道详情里复制" />
+          <button class="icon-btn" id="toggleKey" title="显示/隐藏">👁</button>
+          <button class="icon-btn" id="pasteKey" title="从剪贴板粘贴">粘贴</button>
+        </div>
+
+        <label for="serverInput">服务端地址</label>
+        <input id="serverInput" list="serverPresets" spellcheck="false" placeholder="wss://frp.example.com/_frp" />
+        <datalist id="serverPresets">
+          <option value="wss://frp.infocloud.top/_frp"></option>
+          <option value="ws://127.0.0.1:17000/_frp"></option>
+        </datalist>
+
+        <label for="localInput">本地服务覆盖 <span class="muted">（可选，一般留空）</span></label>
+        <input id="localInput" spellcheck="false" placeholder="http://127.0.0.1:8080 或 127.0.0.1:3306" />
+
+        <label class="check">
+          <input type="checkbox" id="remember" checked />
+          <span>记住设置与 Key</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="autoConnect" />
+          <span>启动后自动连接</span>
+        </label>
+
+        <div class="actions">
+          <button class="primary" id="connectBtn">连接</button>
+          <button class="ghost" id="disconnectBtn" hidden>断开</button>
+        </div>
+        <p class="hint" id="hintText"></p>
+      </section>
+
+      <section class="card info">
+        <h2>隧道状态</h2>
+        <dl class="kv">
+          <dt>隧道 ID</dt>
+          <dd id="tunnelId">—</dd>
+          <dt>客户端 ID</dt>
+          <dd id="clientId">—</dd>
+          <dt>已连接时长</dt>
+          <dd id="uptime">—</dd>
+          <dt>服务端</dt>
+          <dd id="serverShown">—</dd>
+        </dl>
+
+        <h3>代理</h3>
+        <ul class="proxy-list" id="proxyList">
+          <li class="empty">连接后显示服务端下发的代理</li>
+        </ul>
+      </section>
+    </main>
+
+    <section class="card logs">
+      <div class="logs-head">
+        <h2>运行日志</h2>
+        <div class="logs-actions">
+          <label class="check small"><input type="checkbox" id="autoScroll" checked /><span>自动滚动</span></label>
+          <button class="icon-btn" id="copyLogs">复制</button>
+          <button class="icon-btn" id="clearLogs">清空</button>
+        </div>
+      </div>
+      <div class="log-body" id="logBody"></div>
+    </section>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="main.js"></script>
+  </body>
+</html>

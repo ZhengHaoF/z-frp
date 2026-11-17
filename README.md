@@ -21,6 +21,7 @@
 - DNS：每个要暴露的 HTTP 域名（如 `a.b.com`）都加一条 A/CNAME 记录指向 VPS；不需要泛域名解析。
 - VPS 上装 Node.js ≥ 20、Caddy、pnpm。
 - 本地机器装 Node.js ≥ 20（无需 pnpm，跑编译好的 dist 即可）。
+- 想用 Rust 客户端或桌面端：装 Rust 工具链（Windows 需 MSVC Build Tools，桌面端还需 WebView2 运行时，Win10 1803+ 一般自带）。
 
 ## 构建
 
@@ -69,10 +70,30 @@ $NODE packages/frps/dist/index.js tunnel delete <id 或 key>   # 删除，旧 ke
 
 **key 与 tunnel ID**：`tunnelId` 是稳定身份（统计、dashboard 条目都靠它），`key` 是可轮换凭证。轮换 key 不影响身份与统计。轮换/删除后，已在线的客户端会在巡检周期内（默认约 30 秒）被自动断开。
 
+## 桌面客户端（推荐）
+
+Windows 上不想敲命令就用桌面端：填 key → 点「连接」，界面里能看到状态、代理和实时日志。
+
+```bash
+pnpm install
+cd apps/desktop
+pnpm app:build          # 等同 npx tauri build；首次编译 Rust 依赖 5~15 分钟
+```
+
+产物：
+
+- `apps/desktop/src-tauri/target/release/zfrp-desktop.exe` —— 免安装，双击即用
+- `apps/desktop/src-tauri/target/release/bundle/nsis/z-frp_0.1.0_x64-setup.exe` —— 安装包
+
+桌面端和 CLI 共用同一个 Rust 核心 `crates/frpc-core`，行为一致；细节见 [`apps/desktop/README.md`](apps/desktop/README.md) 与[实施文档](docs/rust-frpc-implementation.md)。
+
 ## 客户端启动（本地）
 
 ```bash
-# 最简：用服务端登记的本地地址
+# Rust 版（推荐，需先 cargo build --release）
+./target/release/zfrpc -key <你的key> -server wss://a.b.com/_frp
+
+# Node 版（保留作回退）
 node packages/frpc/dist/index.js -key <你的key> -server wss://a.b.com/_frp
 
 # 换机器/换端口：用 -local 覆盖服务端登记的本地地址

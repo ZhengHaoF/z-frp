@@ -45,10 +45,12 @@ Tauri 的形态是：Rust 侧跑 `frpc-core`，通过 `#[tauri::command]` 暴露
 | 控制帧 JSON | `serde` + `serde_json` | 字段名必须与 Node 一致 |
 | HTTP 转发 | `reqwest`（stream 特性） | **必须关闭自动解压**，见 §8 |
 | TCP 转发 | `tokio::net::TcpStream` | |
-| CLI 参数 | `clap`（derive） | `-key / -server / -local` |
-| 日志 | `tracing` + `tracing-subscriber` | 输出保持 JSON 行，兼容现有日志面板 |
+| CLI 参数 | 手写解析（无 clap） | 只有 `-key / -server / -local / -h / -v` 五个，省掉一棵依赖树 |
+| 日志 | 自定义 `LogEvent` + `mpsc` | CLI 直接打印、桌面端转成 Tauri 事件；不引 `tracing` |
+| 时间戳 | `chrono`（仅 `clock`） | CLI 打 `HH:MM:SS`；桌面端交给前端 `Date` |
 | URL 解析 | `url` | 解析 `local` 与 `server` |
-| 异步锁 | `futures-util::lock::Mutex` | 共享 WS 写端，见 §5 |
+| 异步锁 | `tokio::sync::Mutex` | 共享 WS 写端，见 §5 |
+| 桌面壳 | `tauri` v2 | 前端是纯静态页，无打包器 |
 
 本机环境已确认：Rust 1.99（MSVC toolchain）、VS Build Tools 18 + Windows SDK、WebView2 Runtime 157，构建条件齐备。
 
@@ -180,6 +182,24 @@ connect(wss://…/_frp)
 - Tauri 打包单 exe；README 补 Rust 客户端用法；Node 客户端暂留作回退。
 - **验收**：在未装 Node 的干净 Windows 环境双击 exe 可用。
 
+### 6.1 实际落地与偏差
+
+代码位置：`crates/frpc-core`（协议+转发）、`crates/frpc-cli`（bin `zfrpc`）、`apps/desktop`（Tauri，Rust 壳在 `src-tauri`，前端在 `src`）。
+
+| 计划 | 实际 | 原因 |
+|---|---|---|
+| 桌面端管理「多个隧道实例 + 隧道列表」 | 单个连接卡片：key + 服务端 + 状态 + 日志 | 服务端模型里 key 唯一对应一条隧道，客户端连上由 `config-push` 下发代理；多条隧道 = 多个窗口，列表在 dashboard |
+| `start_tunnel/stop_tunnel/list_tunnels` 四个命令 | `start_client / stop_client / get_settings / save_settings / app_version` | 同上，单实例无需隧道管理 |
+| clap + tracing | 手写参数解析 + 自定义日志事件 | 参数只有 5 个；日志要同时喂 CLI 和 WebView |
+| 「记住 key」放内存即可 | 落盘到 app_config_dir/settings.json，外加「启动后自动连接」 | 否则每次开窗都要重贴 key，失去 GUI 的意义 |
+
+验收记录（本地 `config/frps.test.json` + `scripts/test-fixtures.mjs`）：
+
+- `cargo test`：3 组字节向量对拍全绿。
+- `node scripts/e2e-rust.mjs`：HTTP GET / POST 100KB（sha256 一致）/ TCP AUTH 回显，3/3 通过。
+- 杀掉 frps 后客户端按 1/2/4/8/16/30s 退避重连，frps 恢复后自动回 Online 且流量恢复。
+- 桌面端：seed `settings.json` → 启动即自动连接，`状态=已连接`、隧道 ID/代理列表/日志实时刷新；经 frps HTTP 入口 `18080` 请求返回 200。
+
 ## 7. 测试策略：端到端对拍
 
 最大风险是"能连上但传输出错"，靠三类测试兜底：
@@ -195,7 +215,10 @@ connect(wss://…/_frp)
 | 协议字节不兼容 | Phase 0 字节向量对拍；不通过不进入网络阶段 |
 | `reqwest` 默认自动解压 gzip/br，改变响应 body | 构建 Client 时关掉 `gzip/brotli/deflate`，并原样透传请求头，不主动加 `accept-encoding` |
 | hop-by-hop 头处理差异 | 转发前删 `host` / `connection` / `transfer-encoding`，与 Node 一致 |
-| payload 超过 64KB 被 frps 拒绝 | 发送端按 ≤64KB 主动分片 |
+| payload 超过 64KB 被 frps 拒绝 | 发送端按 ≤64KB 主动分片；**服务端同样要分片**——实测 frps 的 HTTP 入口把整个请求体塞进一帧，>64KB 时 `encodeDataFrame` 抛错并带崩整个 frps 进程（已修 `TunnelHub.sendData`） |
+| 未捕获的 Promise 异常打死进程 | HTTP 入口的 `void handle()` 补 `.catch`，单请求出错只回 502 |
+| Tauri v2 里前端 `listen` 报 `plugin:event|listen not allowed by ACL` | 必须在 `src-tauri/capabilities/*.json` 声明 `core:default`，否则**一条事件都收不到**，界面看起来"连上了但没反应" |
+| 前端脚本在 WebView 里重复执行报 `Identifier 'x' has already been declared` | 顶层 `const` 一律包进 IIFE；热重载/重复注入时不会整页失灵 |
 | `std::sync::Mutex` 持锁跨 await 死锁 | 用 `futures::lock::Mutex`，缩小临界区 |
 | stream task 泄漏 | 有界 channel + FIN/RST 必注销 + 停止时 abort 全部 task |
 | wss 证书校验失败 | 用 `rustls-tls-webpki-roots`，确认系统时间正确、证书链完整 |

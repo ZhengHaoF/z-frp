@@ -1,0 +1,14 @@
+{
+  "name": "@zfrp/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "z-frp 桌面客户端（Tauri，Rust 核心）",
+  "scripts": {
+    "app:dev": "tauri dev",
+    "app:build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.1"
+  }
+}

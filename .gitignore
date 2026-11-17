@@ -1,6 +1,8 @@
 node_modules/
 dist/
 *.log
+target/
+apps/desktop/src-tauri/gen/
 config/frps.json
 config/frpc.json
 config/tunnels.json
