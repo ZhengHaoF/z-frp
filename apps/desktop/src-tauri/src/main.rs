@@ -1,6 +1,7 @@
-// z-frp 桌面客户端：Tauri 外壳，把 frpc-core 的状态/日志事件桥接到前端。
+// z-frp 桌面客户端：Tauri 外壳，把多个 frpc-core 实例的状态/日志事件桥接到前端。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -18,32 +19,54 @@ const TRAY_ID: &str = "zfrp-tray";
 const MENU_SHOW: &str = "tray-show";
 const MENU_QUIT: &str = "tray-quit";
 
+// ---------- 设置 ----------
+
+/// 一条隧道的本地配置。id 由前端生成，在设置文件、事件与命令里稳定标识这条隧道。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TunnelSettings {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    note: String,
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    local: String,
+}
+
+impl Default for TunnelSettings {
+    fn default() -> Self {
+        Self {
+            id: new_id(),
+            note: String::new(),
+            key: String::new(),
+            local: String::new(),
+        }
+    }
+}
+
 /// 持久化到 app_config_dir/settings.json 的用户设置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Settings {
     #[serde(default)]
-    key: String,
-    #[serde(default)]
     server: String,
-    #[serde(default)]
-    local: String,
     #[serde(default = "default_true")]
     remember: bool,
     #[serde(default)]
     auto_connect: bool,
+    #[serde(default)]
+    tunnels: Vec<TunnelSettings>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        // 首次启动（没有 settings.json）时不该沿用 bool 的 false：
-        // 「记住设置与 Key」默认应当是勾上的，否则用户会以为 key 被吞了。
         Self {
-            key: String::new(),
             server: "wss://frp.infocloud.top/_frp".into(),
-            local: String::new(),
             remember: true,
             auto_connect: false,
+            tunnels: vec![TunnelSettings::default()],
         }
     }
 }
@@ -57,12 +80,31 @@ impl Settings {
         if self.server.trim().is_empty() {
             self.server = "wss://frp.infocloud.top/_frp".into();
         }
+        if self.tunnels.is_empty() {
+            self.tunnels.push(TunnelSettings::default());
+        }
+        for tunnel in &mut self.tunnels {
+            if tunnel.id.is_empty() {
+                tunnel.id = new_id();
+            }
+        }
         self
     }
 }
 
+fn new_id() -> String {
+    use std::sync::atomic::AtomicU64;
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    format!("t{}-{}", now_millis(), SEQ.fetch_add(1, Ordering::Relaxed))
+}
+
+// ---------- 应用状态 ----------
+
 struct AppState {
-    client: Mutex<Option<Arc<FrpcClient>>>,
+    /// 一个窗口里同时跑多条隧道，按前端给的 id 索引
+    clients: Mutex<HashMap<String, Arc<FrpcClient>>>,
+    /// 每条隧道最近一次连接状态，用于托盘 tooltip 聚合
+    statuses: Mutex<HashMap<String, String>>,
     settings_path: PathBuf,
     /// 真正的退出请求（托盘菜单「退出」或系统关机），与「关窗仅隐藏」区分开
     quitting: AtomicBool,
@@ -91,6 +133,7 @@ struct ProxyView {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct StatusEvent {
+    id: String,
     state: &'static str,
     tunnel_id: Option<String>,
     client_id: Option<String>,
@@ -101,6 +144,7 @@ struct StatusEvent {
 
 #[derive(Serialize, Clone)]
 struct LogPayload {
+    id: String,
     level: &'static str,
     message: String,
 }
@@ -120,7 +164,7 @@ fn proxy_view(p: &ProxySpec) -> ProxyView {
     }
 }
 
-fn status_event(s: &ClientStatus) -> StatusEvent {
+fn status_event(id: &str, s: &ClientStatus) -> StatusEvent {
     let state = match s.state {
         ConnState::Disconnected => "offline",
         ConnState::Connecting => "connecting",
@@ -128,6 +172,7 @@ fn status_event(s: &ClientStatus) -> StatusEvent {
         ConnState::Reconnecting => "reconnecting",
     };
     StatusEvent {
+        id: id.to_string(),
         state,
         tunnel_id: s.tunnel_id.clone(),
         client_id: s.client_id.clone(),
@@ -144,14 +189,41 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
-fn log_payload(e: &LogEvent) -> LogPayload {
+fn log_payload(id: &str, e: &LogEvent) -> LogPayload {
     LogPayload {
+        id: id.to_string(),
         level: match e.level {
             LogLevel::Info => "info",
             LogLevel::Warn => "warn",
             LogLevel::Error => "error",
         },
         message: e.message.clone(),
+    }
+}
+
+/// 根据所有隧道的最新状态刷新托盘悬停文字
+async fn refresh_tray_tooltip(app: &AppHandle, state: &AppState) {
+    let statuses = state.statuses.lock().await;
+    let total = statuses.len();
+    let count = |want: &str| statuses.values().filter(|s| s.as_str() == want).count();
+    let online = count("online");
+    let reconnecting = count("reconnecting");
+    let connecting = count("connecting");
+
+    let tip = if total == 0 {
+        "z-frp · 未连接".to_string()
+    } else if online == total {
+        format!("z-frp · {total} 条隧道已连接")
+    } else if reconnecting > 0 {
+        format!("z-frp · {online}/{total} 已连接 · 重连中")
+    } else if connecting > 0 {
+        format!("z-frp · {online}/{total} 已连接 · 连接中")
+    } else {
+        format!("z-frp · {online}/{total} 已连接")
+    };
+
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_tooltip(Some(tip));
     }
 }
 
@@ -174,10 +246,12 @@ fn get_settings(state: State<'_, AppState>) -> Settings {
 
 #[tauri::command]
 fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<(), String> {
-    let mut settings = settings;
+    let mut settings = settings.sanitized();
     if !settings.remember {
-        // 不记住 key 时，自动连接也失去意义
-        settings.key = String::new();
+        // 不记住 key 时，自动连接也失去意义：清掉所有隧道的 key
+        for tunnel in &mut settings.tunnels {
+            tunnel.key.clear();
+        }
         settings.auto_connect = false;
     }
     if let Some(dir) = state.settings_path.parent() {
@@ -191,10 +265,15 @@ fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<(), S
 async fn start_client(
     app: AppHandle,
     state: State<'_, AppState>,
+    id: String,
     key: String,
     server: String,
     local: Option<String>,
 ) -> Result<(), String> {
+    let id = id.trim().to_string();
+    if id.is_empty() {
+        return Err("隧道标识缺失".into());
+    }
     let key = key.trim().to_string();
     if key.is_empty() {
         return Err("请先填入隧道 Key".into());
@@ -205,37 +284,33 @@ async fn start_client(
     }
     let local = local.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
 
-    // 已有连接先停掉，避免同 key 双连接
-    {
-        let mut guard = state.client.lock().await;
-        if let Some(old) = guard.take() {
-            old.stop().await;
-        }
+    // 同一 id 只停自己，不影响其他隧道
+    let old = state.clients.lock().await.remove(&id);
+    if let Some(old) = old {
+        old.stop().await;
     }
 
     let (client, mut status_rx, mut log_rx) = FrpcClient::new(ClientOptions { key, server, local });
     let client = Arc::new(client);
 
+    state.statuses.lock().await.insert(id.clone(), "connecting".into());
+    refresh_tray_tooltip(&app, &state).await;
+
     let app_handle = app.clone();
+    let event_id = id.clone();
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::select! {
                 Some(status) = status_rx.recv() => {
-                    let view = status_event(&status);
-                    // 托盘悬停文字跟随连接状态，关窗后也能一眼看到隧道情况
-                    if let Some(tray) = app_handle.tray_by_id(TRAY_ID) {
-                        let tip = match view.state {
-                            "online" => format!("z-frp · 已连接 · {}", view.tunnel_id.as_deref().unwrap_or("—")),
-                            "connecting" => "z-frp · 连接中".into(),
-                            "reconnecting" => "z-frp · 重连中".into(),
-                            _ => "z-frp · 未连接".into(),
-                        };
-                        let _ = tray.set_tooltip(Some(tip));
+                    let view = status_event(&event_id, &status);
+                    if let Some(state) = app_handle.try_state::<AppState>() {
+                        state.statuses.lock().await.insert(event_id.clone(), view.state.to_string());
+                        refresh_tray_tooltip(&app_handle, &state).await;
                     }
                     let _ = app_handle.emit("zfrp://status", view);
                 }
                 Some(log) = log_rx.recv() => {
-                    let _ = app_handle.emit("zfrp://log", log_payload(&log));
+                    let _ = app_handle.emit("zfrp://log", log_payload(&event_id, &log));
                 }
                 else => break,
             }
@@ -243,16 +318,18 @@ async fn start_client(
     });
 
     client.start().await;
-    *state.client.lock().await = Some(client);
+    state.clients.lock().await.insert(id, client);
     Ok(())
 }
 
 #[tauri::command]
-async fn stop_client(state: State<'_, AppState>) -> Result<(), String> {
-    let client = state.client.lock().await.take();
+async fn stop_client(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let client = state.clients.lock().await.remove(&id);
     if let Some(c) = client {
         c.stop().await;
     }
+    state.statuses.lock().await.remove(&id);
+    refresh_tray_tooltip(&app, &state).await;
     Ok(())
 }
 
@@ -264,13 +341,13 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-/// 真正退出：先停客户端让服务端立刻感知离线，再退出进程
+/// 真正退出：先停掉所有客户端让服务端立刻感知离线，再退出进程
 async fn quit_app(app: AppHandle) {
     if let Some(state) = app.try_state::<AppState>() {
         state.request_quit();
-        let client = state.client.lock().await.take();
-        if let Some(c) = client {
-            c.stop().await;
+        let clients: Vec<_> = state.clients.lock().await.drain().map(|(_, c)| c).collect();
+        for client in clients {
+            client.stop().await;
         }
     }
     app.exit(0);
@@ -325,7 +402,8 @@ fn main() {
                 .unwrap_or_else(|_| PathBuf::from("."));
             let settings_path = dir.join("settings.json");
             app.manage(AppState {
-                client: Mutex::new(None),
+                clients: Mutex::new(HashMap::new()),
+                statuses: Mutex::new(HashMap::new()),
                 settings_path,
                 quitting: AtomicBool::new(false),
             });
@@ -346,7 +424,7 @@ fn main() {
                     // 真正退出（托盘退出 / 系统关机）时放行，不阻止关机流程
                     return;
                 }
-                // 关窗只隐藏窗口，客户端继续在后台跑
+                // 关窗只隐藏窗口，所有客户端继续在后台跑
                 api.prevent_close();
                 let _ = window.hide();
             }
@@ -355,13 +433,14 @@ fn main() {
         .expect("启动 z-frp 桌面客户端失败")
         .run(|app: &AppHandle, event: RunEvent| {
             if let RunEvent::ExitRequested { .. } = event {
-                // 系统关机、注销等由外部触发的退出：标记退出并停客户端，
+                // 系统关机、注销等由外部触发的退出：标记退出并停掉所有客户端，
                 // 不调用 prevent_exit，避免拖住关机流程
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Some(state) = handle.try_state::<AppState>() {
                         state.request_quit();
-                        if let Some(client) = state.client.lock().await.take() {
+                        let clients: Vec<_> = state.clients.lock().await.drain().map(|(_, c)| c).collect();
+                        for client in clients {
                             client.stop().await;
                         }
                     }

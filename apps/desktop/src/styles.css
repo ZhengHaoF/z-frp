@@ -153,13 +153,6 @@ body {
 
 /* ---------- 布局 ---------- */
 
-.layout {
-  display: grid;
-  grid-template-columns: minmax(340px, 0.95fr) minmax(320px, 1.05fr);
-  gap: 12px;
-  flex: 0 0 auto;
-}
-
 .card {
   background: var(--card);
   border: 1px solid var(--line);
@@ -168,16 +161,64 @@ body {
   box-shadow: 0 1px 2px rgba(44, 44, 42, 0.03);
 }
 
-/* 设置卡把操作区压到底部，避免表单与按钮之间出现大片空白 */
-.card.setup {
+.global-settings {
+  flex: 0 0 auto;
+  padding: 12px 16px;
+}
+
+.global-row {
   display: flex;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+.server-field {
+  flex: 1 1 auto;
+  min-width: 240px;
+}
+
+.server-field label {
+  margin-top: 0;
+}
+
+.global-row .check {
+  margin: 0 0 9px;
+  white-space: nowrap;
+}
+
+.tunnel-area {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
   flex-direction: column;
 }
 
-/* 状态卡的代理列表占满剩余高度 */
-.card.info {
+.section-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.tunnel-list {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.card.tunnel {
+  padding: 13px 16px 12px;
 }
 
 .card h2 {
@@ -441,12 +482,86 @@ button:disabled {
   max-width: 46%;
 }
 
+/* ---------- 隧道卡片 ---------- */
+
+.tunnel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tunnel-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tunnel-index {
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+input.note-input {
+  width: 180px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.tunnel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card.tunnel .status-pill {
+  padding: 3px 10px;
+  font-size: 11.5px;
+}
+
+.tunnel-meta {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) minmax(250px, 1.2fr);
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.tunnel-meta h3 {
+  margin: 0 0 8px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.tunnel-meta .proxy-list {
+  flex: 0 0 auto;
+  max-height: 96px;
+}
+
+.card.tunnel .actions {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.card.tunnel .hint {
+  margin: 8px 0 0;
+  min-height: 0;
+}
+
+.card.tunnel button.primary,
+.card.tunnel button.ghost {
+  min-width: 92px;
+  padding: 7px 12px;
+}
+
 /* ---------- 日志 ---------- */
 
 .logs {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
+  flex: 0 0 200px;
   min-height: 140px;
   padding-bottom: 12px;
 }
