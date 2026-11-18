@@ -225,8 +225,12 @@
     const pill = node.querySelector(".js-status");
     pill.dataset.state = state;
     node.querySelector(".js-state-text").textContent = STATE_TEXT[state] || state;
-    node.querySelector(".js-tunnel-id").textContent = s?.tunnelId || "—";
-    node.querySelector(".js-client-id").textContent = s?.clientId || "—";
+    const tid = node.querySelector(".js-tunnel-id");
+    const cid = node.querySelector(".js-client-id");
+    tid.textContent = s?.tunnelId || "—";
+    tid.title = s?.tunnelId || "";
+    cid.textContent = s?.clientId || "—";
+    cid.title = s?.clientId || "";
 
     const uptime = node.querySelector(".js-uptime");
     uptime.textContent = state === "online" && s?.since ? formatSince(s.since) : "—";
@@ -333,29 +337,32 @@
       article.dataset.id = t.id;
       article.innerHTML = `
         <div class="tunnel-head">
-          <div class="tunnel-title">
-            <span class="tunnel-index">隧道 ${i + 1}</span>
-            <input class="note-input js-note" placeholder="备注（可选）" />
-          </div>
+          <input class="note-input js-note" placeholder="给这条隧道起个名字" />
           <div class="tunnel-head-actions">
             <span class="status-pill js-status" data-state="offline"><span class="dot"></span><span class="js-state-text">未连接</span></span>
             <button class="icon-btn js-remove" title="删除这条隧道">×</button>
           </div>
         </div>
-        <label>隧道 Key</label>
-        <div class="input-row">
-          <input type="password" class="js-key" spellcheck="false" placeholder="在 dashboard 隧道详情里复制" />
-          <button class="icon-btn js-toggle-key" title="显示/隐藏">👁</button>
-          <button class="icon-btn js-paste-key" title="从剪贴板粘贴">粘贴</button>
+        <div class="field-row">
+          <div class="field">
+            <label for="key-${t.id}">隧道 Key</label>
+            <div class="input-row">
+              <input id="key-${t.id}" type="password" class="js-key" spellcheck="false" placeholder="在 dashboard 隧道详情里复制" />
+              <button class="icon-btn js-toggle-key" title="显示 / 隐藏">显示</button>
+              <button class="icon-btn js-paste-key" title="从剪贴板粘贴">粘贴</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="local-${t.id}">本地服务覆盖 <span class="muted">可选，一般留空</span></label>
+            <input id="local-${t.id}" class="js-local" spellcheck="false" placeholder="http://127.0.0.1:8080 或 127.0.0.1:3306" />
+          </div>
         </div>
-        <label>本地服务覆盖 <span class="muted">（可选，一般留空）</span></label>
-        <input class="js-local" spellcheck="false" placeholder="http://127.0.0.1:8080 或 127.0.0.1:3306" />
         <div class="tunnel-meta">
-          <dl class="kv">
-            <dt>隧道 ID</dt><dd class="js-tunnel-id">—</dd>
-            <dt>客户端 ID</dt><dd class="js-client-id">—</dd>
-            <dt>已连接时长</dt><dd class="js-uptime">—</dd>
-          </dl>
+          <div class="meta-grid">
+            <div class="meta-item"><span class="meta-label">隧道 ID</span><span class="meta-value js-tunnel-id">—</span></div>
+            <div class="meta-item"><span class="meta-label">客户端 ID</span><span class="meta-value js-client-id">—</span></div>
+            <div class="meta-item"><span class="meta-label">已连接时长</span><span class="meta-value js-uptime">—</span></div>
+          </div>
           <div class="proxy-wrap">
             <h3>代理 <span class="count js-proxy-count"></span></h3>
             <ul class="proxy-list js-proxy-list"><li class="empty">连接后显示服务端下发的代理</li></ul>
@@ -471,7 +478,9 @@
     else if (btn.matches(".js-remove")) await removeTunnel(id);
     else if (btn.matches(".js-toggle-key")) {
       const input = article.querySelector(".js-key");
-      input.type = input.type === "password" ? "text" : "password";
+      const hidden = input.type === "password";
+      input.type = hidden ? "text" : "password";
+      btn.textContent = hidden ? "隐藏" : "显示";
     } else if (btn.matches(".js-paste-key")) {
       try {
         const text = (await navigator.clipboard.readText()).trim();
