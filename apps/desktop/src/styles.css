@@ -207,10 +207,82 @@ body {
   font-weight: 500;
 }
 
+/* 一条隧道一个 tab，只渲染当前选中的卡片，避免纵向堆叠滚动 */
+.tunnel-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 33px;
+  margin-bottom: 8px;
+  padding: 3px 4px;
+  overflow-x: auto;
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+}
+
+.tunnel-tab {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.tunnel-tab:hover {
+  color: var(--text);
+  background: var(--card);
+}
+
+.tunnel-tab.active {
+  color: var(--text);
+  background: var(--card);
+  border-color: var(--line);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(44, 44, 42, 0.04);
+}
+
+.tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #bfbdb6;
+}
+
+.tunnel-tab[data-state="connecting"] .tab-dot {
+  background: var(--info);
+  animation: pulse 1.1s infinite;
+}
+
+.tunnel-tab[data-state="online"] .tab-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(59, 109, 17, 0.14);
+}
+
+.tunnel-tab[data-state="reconnecting"] .tab-dot {
+  background: var(--warn);
+  animation: pulse 0.9s infinite;
+}
+
+.tab-index {
+  color: var(--muted-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .tunnel-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -218,11 +290,15 @@ body {
 }
 
 .card.tunnel {
-  padding: 12px 16px 11px;
+  padding: 10px 16px 9px;
+}
+
+.card.tunnel label {
+  margin: 8px 0 4px;
 }
 
 .card.tunnel label:first-of-type {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .card h2 {
@@ -529,7 +605,7 @@ input.note-input {
   display: grid;
   grid-template-columns: minmax(210px, 1fr) minmax(250px, 1.2fr);
   gap: 18px;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .tunnel-meta h3 {
@@ -565,8 +641,8 @@ input.note-input {
 .logs {
   display: flex;
   flex-direction: column;
-  flex: 0 0 140px;
-  min-height: 110px;
+  flex: 0 0 120px;
+  min-height: 100px;
   padding-bottom: 10px;
 }
 

@@ -76,6 +76,7 @@
     remember: $("remember"),
     autoConnect: $("autoConnect"),
     tunnelList: $("tunnelList"),
+    tunnelTabs: $("tunnelTabs"),
     tunnelCount: $("tunnelCount"),
     addTunnel: $("addTunnel"),
     logBody: $("logBody"),
@@ -99,6 +100,7 @@
 
   let toastTimer = null;
   let persistTimer = null;
+  let activeTunnelId = null; // tab 当前选中的隧道 id
 
   function newId() {
     return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -270,10 +272,62 @@
     el.statusText.textContent = text;
   }
 
-  function renderTunnels() {
-    el.tunnelCount.textContent = settings.tunnels.length ? `(${settings.tunnels.length})` : "";
-    el.tunnelList.innerHTML = "";
+  function tab(id) {
+    return el.tunnelTabs.querySelector(`[data-id="${CSS.escape(id)}"]`);
+  }
+
+  function updateTab(id) {
+    const node = tab(id);
+    if (!node) return;
+    const i = settings.tunnels.findIndex((t) => t.id === id);
+    if (i < 0) return;
+    const s = runtime.get(id);
+    const state = s?.state || "offline";
+    node.dataset.state = state;
+    node.querySelector(".js-tab-label").textContent =
+      settings.tunnels[i].note.trim() || `隧道 ${i + 1}`;
+    node.title = `${settings.tunnels[i].note.trim() || `隧道 ${i + 1}`} · ${STATE_TEXT[state] || state}`;
+  }
+
+  function renderTabs() {
+    el.tunnelTabs.innerHTML = "";
     settings.tunnels.forEach((t, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tunnel-tab";
+      btn.setAttribute("role", "tab");
+      btn.dataset.id = t.id;
+      btn.innerHTML = `
+        <span class="tab-dot"></span>
+        <span class="tab-index">${i + 1}</span>
+        <span class="js-tab-label"></span>
+      `;
+      btn.addEventListener("click", () => selectTunnel(t.id));
+      el.tunnelTabs.appendChild(btn);
+      updateTab(t.id);
+    });
+    for (const node of el.tunnelTabs.children) {
+      const active = node.dataset.id === activeTunnelId;
+      node.classList.toggle("active", active);
+      node.setAttribute("aria-selected", String(active));
+    }
+  }
+
+  function selectTunnel(id) {
+    if (!settings.tunnels.some((t) => t.id === id)) return;
+    activeTunnelId = id;
+    renderTabs();
+    renderCard();
+    // 切 tab 后把选中的标签滚进可视区
+    tab(id)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  /** 只渲染当前 tab 选中的那条隧道卡片 */
+  function renderCard() {
+    el.tunnelList.innerHTML = "";
+    const t = settings.tunnels.find((x) => x.id === activeTunnelId);
+    if (!t) return;
+    const i = settings.tunnels.findIndex((x) => x.id === t.id);
       const article = document.createElement("article");
       article.className = "card tunnel";
       article.dataset.id = t.id;
@@ -319,7 +373,14 @@
       article.querySelector(".js-local").value = t.local;
       el.tunnelList.appendChild(article);
       updateCard(t.id);
-    });
+  }
+
+  function renderTunnels() {
+    if (!settings.tunnels.some((t) => t.id === activeTunnelId)) {
+      activeTunnelId = settings.tunnels[0]?.id || null;
+    }
+    renderTabs();
+    renderCard();
   }
 
   async function connect(id) {
@@ -337,6 +398,7 @@
       await persist(true);
       runtime.set(id, { state: "connecting" });
       updateCard(id);
+      updateTab(id);
       updateGlobalStatus();
       await invoke("start_client", { id, key, server, local: t.local.trim() || null });
     } catch (err) {
@@ -357,6 +419,7 @@
   function addTunnel() {
     const t = makeTunnel();
     settings.tunnels.push(t);
+    activeTunnelId = t.id;
     renderTunnels();
     updateGlobalStatus();
     persist(true);
@@ -371,6 +434,9 @@
     if (ACTIVE.has(runtime.get(id)?.state)) await disconnect(id);
     settings.tunnels.splice(idx, 1);
     runtime.delete(id);
+    if (activeTunnelId === id) {
+      activeTunnelId = settings.tunnels[Math.min(idx, settings.tunnels.length - 1)]?.id || null;
+    }
     renderTunnels();
     updateGlobalStatus();
     persist(true);
@@ -388,8 +454,10 @@
     if (!t) return;
     if (e.target.matches(".js-key")) t.key = e.target.value;
     else if (e.target.matches(".js-local")) t.local = e.target.value;
-    else if (e.target.matches(".js-note")) t.note = e.target.value;
-    else return;
+    else if (e.target.matches(".js-note")) {
+      t.note = e.target.value;
+      updateTab(t.id); // 备注就是 tab 标题，实时同步
+    } else return;
     persist();
   });
 
@@ -472,6 +540,7 @@
     if (!payload?.id) return;
     runtime.set(payload.id, payload);
     updateCard(payload.id);
+    updateTab(payload.id); // 后台状态变化同步到 tab 圆点，不必等切回来
     updateGlobalStatus();
   });
 
