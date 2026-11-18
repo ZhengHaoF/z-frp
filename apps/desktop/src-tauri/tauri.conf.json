@@ -26,6 +26,15 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false,
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
     "shortDescription": "z-frp 内网穿透客户端",
     "longDescription": "z-frp 桌面客户端：填入隧道 Key 即可把本地 HTTP/TCP 服务通过自建 frps 暴露到公网。"
